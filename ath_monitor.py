@@ -184,6 +184,7 @@ class AthMonitor:
                         "turnover": s.get("turnover"),
                         "turnover_rank": s.get("turnover_rank"),
                         "is_new_ath": is_new_ath,
+                        "ath_updated": bool(s.get("ath_updated")),
                         "update_time": s.get("update_time", ""),
                     }
                 )
@@ -271,6 +272,7 @@ class AthMonitor:
                         "name": r.get("name", "") or "",
                         "industry": "",
                         "ath": _f(r.get("highest_history_price")),
+                        "ath_updated": False,   # 実行中に当日高値が起動時ATHを超えたら True（以後保持）
                         "prev_close": _f(r.get("prev_close_price")),
                         "last": _f(r.get("last_price")),
                         "high": _f(r.get("high_price")),
@@ -439,6 +441,9 @@ class AthMonitor:
             # 当日高値は単調に更新（realtime の high_price を採用しつつ後退させない）
             if high:
                 s["high"] = max(s.get("high") or 0.0, high)
+            # 起動時ATHを当日高値が超えたら「ATH更新」を確定（スティッキー）
+            if s.get("ath") and (s.get("high") or 0.0) > s["ath"]:
+                s["ath_updated"] = True
             for fld, key in (("pre", "pre_price"), ("after", "after_price"), ("overnight", "overnight_price")):
                 v = _f(_rowget(row, key))
                 if v:
@@ -466,7 +471,8 @@ class AthMonitor:
                 mock_open = round(last * random.uniform(0.97, 1.03), 2)
                 self._state[code] = {
                     "name": name, "industry": random.choice(mock_industry),
-                    "ath": ath, "prev_close": round(last * random.uniform(0.97, 1.03), 2),
+                    "ath": ath, "ath_updated": False,
+                    "prev_close": round(last * random.uniform(0.97, 1.03), 2),
                     "reg_open": mock_open, "day_open": mock_open, "pre_open": 0.0,
                     "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
@@ -488,6 +494,8 @@ class AthMonitor:
                     drift = random.gauss(0, 0.004)
                     s["last"] = max(1.0, round(s["last"] * (1 + drift), 2))
                     s["high"] = max(s.get("high") or 0.0, s["last"])
+                    if s.get("ath") and s["high"] > s["ath"]:
+                        s["ath_updated"] = True
                     s["update_time"] = time.strftime("%Y-%m-%d %H:%M:%S")
             time.sleep(1.0)
 
