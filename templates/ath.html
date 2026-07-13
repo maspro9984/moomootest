@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ATH接近ランキング｜{{ market }}</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --panel2: #182235;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #60a5fa;
+      --hot: #f59e0b;
+      --hot2: #ef4444;
+      --newath: #a855f7;
+      --up: #22c55e;
+      --down: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      flex-wrap: wrap; gap: 12px; margin-bottom: 16px;
+    }
+    h1 { font-size: 19px; margin: 0; font-weight: 600; }
+    h1 .sub { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
+      color: var(--muted); background: var(--panel); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 14px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
+    .dot.mock { background: var(--hot); box-shadow: 0 0 8px var(--hot); }
+    .badge { font-size: 11px; padding: 3px 9px; border-radius: 5px; font-weight: 700; letter-spacing: .5px; }
+    .badge.realtime { background: #14532d; color: #86efac; }
+    .badge.mock { background: #78350f; color: #fcd34d; }
+    .sess { font-size: 12px; padding: 4px 10px; border-radius: 6px; font-weight: 700; background: var(--panel2); border: 1px solid var(--border); }
+    .sess.PRE { color: #93c5fd; }
+    .sess.REGULAR { color: #86efac; }
+    .sess.AFTER { color: #fcd34d; }
+    .sess.OVERNIGHT { color: #c4b5fd; }
+    .sess.CLOSED { color: var(--muted); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 760px; }
+    thead th {
+      position: sticky; top: 0; background: var(--panel); color: var(--muted);
+      font-weight: 600; text-align: right; padding: 11px 14px; border-bottom: 1px solid var(--border);
+      white-space: nowrap; font-size: 12px;
+    }
+    thead th.l, tbody td.l { text-align: left; }
+    tbody td { padding: 10px 14px; text-align: right; border-bottom: 1px solid #263349; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background .3s; }
+    tbody tr:hover { background: var(--panel2); }
+    tbody tr.flash { animation: flash .6s ease-out; }
+    @keyframes flash { from { background: #1d4ed855; } to { background: transparent; } }
+    tbody tr.newath { background: linear-gradient(90deg, #a855f733, transparent); }
+
+    .rank { color: var(--muted); font-weight: 700; width: 40px; }
+    .rank.top1 { color: #fde047; } .rank.top2 { color: #e2e8f0; } .rank.top3 { color: #fdba74; }
+    .code { font-family: monospace; color: var(--accent); }
+    .name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    .cur { font-weight: 700; }
+
+    /* ATH比 バー */
+    .pct-cell { min-width: 160px; }
+    .pct-wrap { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+    .pct-num { font-weight: 700; width: 62px; text-align: right; }
+    .bar { flex: 1; height: 8px; background: #0b1424; border-radius: 999px; overflow: hidden; max-width: 120px; }
+    .bar > span { display: block; height: 100%; border-radius: 999px; }
+    .tag-new {
+      font-size: 10px; font-weight: 800; letter-spacing: .5px; color: #fff;
+      background: var(--newath); padding: 2px 6px; border-radius: 4px; margin-left: 6px;
+    }
+    footer { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+    .muted { color: var(--muted); }
+    #mock-note { color: #fcd34d; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎯 上場来高値(ATH)接近ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{{ top }}</span></h1>
+    <div class="status">
+      <span class="sess CLOSED" id="sess">—</span>
+      <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span><span class="badge" id="mode"></span></span>
+    </div>
+  </header>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="l">#</th>
+          <th class="l">コード</th>
+          <th class="l">銘柄名</th>
+          <th>現在値</th>
+          <th>上場来高値</th>
+          <th>ATH比</th>
+          <th>当日高値</th>
+          <th>売買代金</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="8" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span id="meta"></span>
+    <span id="mock-note"></span><br>
+    <span class="muted">
+      ATH比 = 現在値 ÷ max(上場来高値, 当日高値)。<span class="tag-new">NEW</span> は当日高値が既存ATHに到達＝新高値更新中。
+      現在値はセッション（プレ/レギュラー/アフター）に応じた値。約1秒ごとに自動更新。
+    </span>
+  </footer>
+
+  <script>
+    const SESS_LABEL = { PRE: 'プレマーケット', REGULAR: 'レギュラー', AFTER: 'アフター', OVERNIGHT: 'オーバーナイト', CLOSED: 'クローズ' };
+    const tbody = document.getElementById('tbody');
+    const prevRank = {};   // code -> 前回順位
+
+    function fmt(n, d = 2) {
+      if (n === null || n === undefined || isNaN(n)) return '-';
+      return Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function money(v) {
+      if (v === null || v === undefined || isNaN(v)) return '-';
+      v = Number(v);
+      if (v >= 1e9) return (v / 1e9).toFixed(2) + ' B';
+      if (v >= 1e6) return (v / 1e6).toFixed(2) + ' M';
+      return Math.round(v).toLocaleString('en-US');
+    }
+    // 接近率に応じた色（100%に近いほど熱い）
+    function barColor(pct) {
+      if (pct >= 99) return '#a855f7';
+      if (pct >= 90) return '#ef4444';
+      if (pct >= 75) return '#f59e0b';
+      if (pct >= 50) return '#eab308';
+      return '#3b82f6';
+    }
+
+    function rowHtml(r) {
+      const rankCls = r.rank <= 3 ? ' top' + r.rank : '';
+      const w = Math.max(2, Math.min(100, r.pct));
+      const newTag = r.is_new_ath ? '<span class="tag-new">NEW</span>' : '';
+      return `
+        <td class="l rank${rankCls}">${r.rank}</td>
+        <td class="l code">${r.code}</td>
+        <td class="l name" title="${r.name || ''}">${r.name || ''}</td>
+        <td class="cur">$${fmt(r.cur)}</td>
+        <td class="muted">$${fmt(r.ath)}</td>
+        <td class="pct-cell">
+          <div class="pct-wrap">
+            <span class="bar"><span style="width:${w}%;background:${barColor(r.pct)}"></span></span>
+            <span class="pct-num">${fmt(r.pct, 2)}%${newTag}</span>
+          </div>
+        </td>
+        <td class="muted">$${fmt(r.high)}</td>
+        <td class="muted">${money(r.turnover)}</td>
+      `;
+    }
+
+    function render(data) {
+      // ステータス
+      const dot = document.getElementById('dot');
+      const mode = document.getElementById('mode');
+      const note = document.getElementById('mock-note');
+      if (data.mode === 'realtime') {
+        dot.className = 'dot live'; mode.className = 'badge realtime'; mode.textContent = 'REALTIME';
+        document.getElementById('conn').textContent = '接続済み'; note.textContent = '';
+      } else if (data.mode === 'mock') {
+        dot.className = 'dot mock'; mode.className = 'badge mock'; mode.textContent = 'MOCK（擬似）';
+        document.getElementById('conn').textContent = 'モック'; note.textContent = ' OpenD未接続のため擬似データを表示中。実データにはOpenDの起動が必要です。';
+      }
+      const sess = document.getElementById('sess');
+      const sk = data.session || 'CLOSED';
+      sess.className = 'sess ' + sk;
+      sess.textContent = (SESS_LABEL[sk] || sk) + (data.session_raw ? ` (${data.session_raw})` : '');
+      document.getElementById('meta').textContent =
+        `${data.market} 売買代金上位${data.universe_n}銘柄を監視中。表示 ${data.rows.length} 件。`;
+
+      const rows = data.rows || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="8" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        return;
+      }
+      // 既存行を再利用しつつ、順位変動でフラッシュ
+      const frag = document.createDocumentFragment();
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        if (r.is_new_ath) tr.className = 'newath';
+        const before = prevRank[r.code];
+        if (before !== undefined && before !== r.rank) tr.classList.add('flash');
+        tr.innerHTML = rowHtml(r);
+        frag.appendChild(tr);
+        prevRank[r.code] = r.rank;
+      }
+      tbody.replaceChildren(frag);
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch('/api/ranking', { cache: 'no-store' });
+        render(await res.json());
+      } catch (e) {
+        document.getElementById('conn').textContent = '再接続中...';
+        document.getElementById('dot').className = 'dot';
+      }
+    }
+    poll();
+    setInterval(poll, 1000);
+  </script>
+</body>
+</html>
