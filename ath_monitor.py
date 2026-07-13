@@ -58,19 +58,22 @@ def _ret_pct(cur: float, base: float) -> Optional[float]:
 
 
 def _session_bucket(market_state: str) -> str:
-    """OpenD の市場ステート文字列を PRE / REGULAR / AFTER / OVERNIGHT / CLOSED に分類する。"""
+    """OpenD の市場ステート文字列を PRE / REGULAR / AFTER / OVERNIGHT / CLOSED に分類する。
+
+    注意: "AFTERNOON"(レギュラー午後) に "AFTER" が含まれるため、レギュラーを先に判定する。
+    """
     s = (market_state or "").upper()
+    # レギュラーセッション（米国は MORNING / AFTERNOON。他に TRADING/REGULAR）
+    if s in ("MORNING", "AFTERNOON", "TRADING", "REGULAR"):
+        return "REGULAR"
     if "PRE_MARKET" in s or s == "PRE":
         return "PRE"
-    if "OVERNIGHT" in s:
+    if "AFTER_HOURS" in s:
+        # AFTER_HOURS_BEGIN=大引け後の時間外, AFTER_HOURS_END=時間外終了(=クローズ扱い)
+        return "CLOSED" if "END" in s else "AFTER"
+    if "OVERNIGHT" in s or "NIGHT" in s:
         return "OVERNIGHT"
-    if "AFTER_HOURS_END" in s or "END" in s or "CLOSED" in s or "REST" in s:
-        # アフター終了・休場はクローズ扱い（現在値は last_price を使う）
-        return "CLOSED"
-    if "AFTER" in s:
-        return "AFTER"
-    if "TRADING" in s or "MORNING" in s or "AFTERNOON" in s or "REGULAR" in s or "OPEN" in s:
-        return "REGULAR"
+    # CLOSED / REST / WAITING_OPEN / AUCTION / TRADE_AT_LAST / NONE など
     return "CLOSED"
 
 
