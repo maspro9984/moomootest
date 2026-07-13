@@ -67,9 +67,12 @@ def fetch_top(quote_ctx, market, top: int):
     Returns: list[dict]  (rank, code, name, turnover, last_price)
     """
     # 売買代金でソートするフィルタ
+    # is_no_filter=False（フィルタ有効）にする場合、範囲値(min/max)の指定が必須。
+    # 下限を 0 にすることで実質「全銘柄」を対象にしつつ降順ソートを行う。
     turnover_filter = ft.SimpleFilter()
     turnover_filter.stock_field = ft.StockField.TURNOVER
-    turnover_filter.is_no_filter = False       # 値でフィルタ（ここでは範囲は絞らずソートのみ目的）
+    turnover_filter.is_no_filter = False
+    turnover_filter.filter_min = 0             # 下限0＝実質無制限（範囲値必須のため設定）
     turnover_filter.sort = ft.SortDir.DESCEND  # 降順（大きい順）
 
     # 現在値も出力に含めるためのフィルタ（絞り込みはせず、値の取得のみ）
