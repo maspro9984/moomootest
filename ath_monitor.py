@@ -288,47 +288,20 @@ class AthMonitor:
         # fetch_top は売買代金の降順で rank を採番済み（=売買代金順位）
         turnover_rank_map = {r["code"]: r.get("rank") for r in rows}
 
-        # 2) ATH（上場来高値）と初期値を snapshot で取得
-        with self._lock:
-            for chunk in _chunked(codes, SNAPSHOT_CHUNK):
-                ret, data = quote_ctx.get_market_snapshot(chunk)
-                if ret != ft.RET_OK:
-                    print(f"[ath] snapshot 取得失敗: {data}. モックモードで起動します。")
-                    quote_ctx.close()
-                    self._quote_ctx = None
-                    return False
-                for _, r in data.iterrows():
-                    code = r["code"]
-                    self._state[code] = {
-                        "name": r.get("name", "") or "",
-                        "industry": "",
-                        "ath": _f(r.get("highest_history_price")),
-                        "ath_updated": False,   # 実行中に当日高値が起動時ATHを超えたら True（以後保持）
-                        "prev_close": _f(r.get("prev_close_price")),
-                        "market_cap": _f(r.get("total_market_val")),
-                        "last": _f(r.get("last_price")),
-                        "high": _f(r.get("high_price")),
-                        "pre": _f(r.get("pre_price")),
-                        "after": _f(r.get("after_price")),
-                        "overnight": _f(r.get("overnight_price")),
-                        "turnover": turnover_map.get(code),
-                        "turnover_rank": turnover_rank_map.get(code),
-                        "update_time": str(r.get("update_time", "") or ""),
-                    }
-            # 時価総額順位を採番（ユニバース内を時価総額の降順で）
-            for i, (code, s) in enumerate(
-                sorted(self._state.items(), key=lambda kv: kv[1].get("market_cap") or 0, reverse=True),
-                start=1,
-            ):
-                s["market_cap_rank"] = i
-            self._codes = codes
-
-        # 2b) 業種（所属INDUSTRYプレート）を取得して付与
+        # 2) ATH等の初期値を snapshot で取得して state を構築 → 業種付与 → 差し替え
+        new_state = self._build_state(quote_ctx, codes, turnover_map, turnover_rank_map)
+        if new_state is None:
+            print("[ath] snapshot 取得失敗。モックモードで起動します。")
+            quote_ctx.close()
+            self._quote_ctx = None
+            return False
         industries = self._fetch_industries(quote_ctx, codes)
+        for code, ind in industries.items():
+            if code in new_state:
+                new_state[code]["industry"] = ind
         with self._lock:
-            for code, ind in industries.items():
-                if code in self._state:
-                    self._state[code]["industry"] = ind
+            self._state = new_state
+            self._codes = codes
 
         # 2c) 同一取引日ならATH更新フラグ・基準ATHを復元（再起動でハイライトが消えないように）
         self._restore_ath_state()
@@ -433,6 +406,95 @@ class AthMonitor:
                 pass
             self._stop.wait(0.3)
 
+    def _build_state(self, quote_ctx, codes, turnover_map, turnover_rank_map) -> Optional[dict]:
+        """snapshot から各銘柄の初期 state 辞書を構築して返す（失敗時 None）。"""
+        state: dict = {}
+        for chunk in _chunked(codes, SNAPSHOT_CHUNK):
+            ret, data = quote_ctx.get_market_snapshot(chunk)
+            if ret != ft.RET_OK:
+                print(f"[ath] snapshot 取得失敗: {data}")
+                return None
+            for _, r in data.iterrows():
+                code = r["code"]
+                state[code] = {
+                    "name": r.get("name", "") or "",
+                    "industry": "",
+                    "ath": _f(r.get("highest_history_price")),
+                    "ath_updated": False,   # 当日高値が基準ATHを超えたら True（大引けまで保持）
+                    "prev_close": _f(r.get("prev_close_price")),
+                    "market_cap": _f(r.get("total_market_val")),
+                    "last": _f(r.get("last_price")),
+                    "high": _f(r.get("high_price")),
+                    "pre": _f(r.get("pre_price")),
+                    "after": _f(r.get("after_price")),
+                    "overnight": _f(r.get("overnight_price")),
+                    "turnover": turnover_map.get(code),
+                    "turnover_rank": turnover_rank_map.get(code),
+                    "update_time": str(r.get("update_time", "") or ""),
+                }
+        # 時価総額順位を採番（ユニバース内を時価総額の降順で）
+        for i, (code, s) in enumerate(
+            sorted(state.items(), key=lambda kv: kv[1].get("market_cap") or 0, reverse=True),
+            start=1,
+        ):
+            s["market_cap_rank"] = i
+        return state
+
+    def _swap_universe(self) -> None:
+        """引け後に新ユニバースへ入れ替える（稼働中に再取得・再購読）。
+
+        _refresh_session の大引け遷移から呼ばれる。ユニバースファイルは直前に
+        無効化済みなので取り直しになり、days=1 は当日確定売買代金になる。
+        """
+        quote_ctx = self._quote_ctx
+        if quote_ctx is None:
+            return
+        print("[ath] 引け後: 新ユニバースへ入れ替えます...")
+        market = tt.resolve_market(self.market_name)
+        old_codes = list(self._codes)
+        try:
+            rows = self._load_or_fetch_universe(quote_ctx, market)
+        except SystemExit:
+            rows = None
+        except Exception as exc:
+            print(f"[ath] 新ユニバース取得エラー: {exc}")
+            rows = None
+        if not rows:
+            print("[ath] 新ユニバース取得失敗。現状のまま継続します。")
+            return
+        codes = [r["code"] for r in rows]
+        turnover_map = {r["code"]: r.get("turnover") for r in rows}
+        turnover_rank_map = {r["code"]: r.get("rank") for r in rows}
+
+        new_state = self._build_state(quote_ctx, codes, turnover_map, turnover_rank_map)
+        if new_state is None:
+            print("[ath] 新ユニバースの snapshot 失敗。現状のまま継続します。")
+            return
+        industries = self._fetch_industries(quote_ctx, codes)
+        for code, ind in industries.items():
+            if code in new_state:
+                new_state[code]["industry"] = ind
+
+        # state を差し替え（ロック下で原子的に）
+        with self._lock:
+            self._state = new_state
+            self._codes = codes
+        # 新しい取引日の基準としてATH状態を保存（フラグ空・新baseline）
+        self._save_ath_state()
+
+        # 購読を入れ替え（差分のみ）
+        new_set, old_set = set(codes), set(old_codes)
+        to_unsub = [c for c in old_codes if c not in new_set]
+        to_sub = [c for c in codes if c not in old_set]
+        try:
+            if to_unsub:
+                quote_ctx.unsubscribe(to_unsub, [ft.SubType.QUOTE])
+            if to_sub:
+                quote_ctx.subscribe(to_sub, [ft.SubType.QUOTE], extended_time=self.extended_time)
+        except Exception as exc:
+            print(f"[ath] 購読の入れ替えエラー: {exc}")
+        print(f"[ath] 新ユニバースへ入れ替え完了: {len(codes)}銘柄（解除{len(to_unsub)}/追加{len(to_sub)}）")
+
     def _universe_path(self) -> str:
         return UNIVERSE_FILE_TMPL.format(market=self.market_name)
 
@@ -534,8 +596,9 @@ class AthMonitor:
                     elif old_bucket == "REGULAR":
                         # 大引け(取引終了): ATH更新フラグをリセット（当日高値表示は維持）
                         self._reset_daily(reset_high=False)
-                        # ユニバースも無効化 → 次回起動でその日確定の売買代金上位に取り直す
+                        # ユニバースを無効化→その日確定の売買代金上位へ即入れ替え（再購読）
                         self._invalidate_universe()
+                        self._swap_universe()
         except Exception:
             pass
 
