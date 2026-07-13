@@ -4,6 +4,9 @@ moomoo OpenD のスクリーナー API (get_stock_filter) を使い、
 指定市場（デフォルト: 米国）を売買代金 (TURNOVER) の降順で並べて
 上位N件を取得します。
 
+売買代金 (TURNOVER) は SDK 内部で「累積系フィールド」に分類されるため、
+SimpleFilter ではなく AccumulateFilter（days 指定必須）で指定します。
+
 売買代金 = TURNOVER は「その取引日に約定した金額の合計（株価×出来高の累計）」。
 米国市場の取引終了後〜翌日の場に入るまでに実行すると、直近取引日（＝前日）の
 確定値が得られます。
@@ -66,11 +69,16 @@ def fetch_top(quote_ctx, market, top: int):
 
     Returns: list[dict]  (rank, code, name, turnover, last_price)
     """
-    # 売買代金でソートするフィルタ
+    # 売買代金でソートするフィルタ。
+    # 重要: TURNOVER(売買代金) は SDK 内部で「累積系フィールド」に分類されており、
+    # SimpleFilter では扱えず AccumulateFilter を使う必要がある。
+    # （SimpleFilter に入れるとサーバが「このフィルターフィールドには対応していません」を返す。）
+    # days=1 で直近取引日（＝前日）の売買代金を対象にする。
     # is_no_filter=False（フィルタ有効）にする場合、範囲値(min/max)の指定が必須。
     # 下限を 0 にすることで実質「全銘柄」を対象にしつつ降順ソートを行う。
-    turnover_filter = ft.SimpleFilter()
+    turnover_filter = ft.AccumulateFilter()
     turnover_filter.stock_field = ft.StockField.TURNOVER
+    turnover_filter.days = 1                   # 直近1取引日（前日）の売買代金
     turnover_filter.is_no_filter = False
     turnover_filter.filter_min = 0             # 下限0＝実質無制限（範囲値必須のため設定）
     turnover_filter.sort = ft.SortDir.DESCEND  # 降順（大きい順）
