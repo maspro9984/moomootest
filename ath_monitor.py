@@ -135,6 +135,7 @@ class AthMonitor:
                         "high": round(high, 4),
                         "pct": round(pct, 4),
                         "turnover": s.get("turnover"),
+                        "turnover_rank": s.get("turnover_rank"),
                         "is_new_ath": is_new_ath,
                         "update_time": s.get("update_time", ""),
                     }
@@ -202,6 +203,8 @@ class AthMonitor:
             return False
         codes = [r["code"] for r in rows]
         turnover_map = {r["code"]: r.get("turnover") for r in rows}
+        # fetch_top は売買代金の降順で rank を採番済み（=売買代金順位）
+        turnover_rank_map = {r["code"]: r.get("rank") for r in rows}
 
         # 2) ATH（上場来高値）と初期値を snapshot で取得
         with self._lock:
@@ -223,6 +226,7 @@ class AthMonitor:
                         "after": _f(r.get("after_price")),
                         "overnight": _f(r.get("overnight_price")),
                         "turnover": turnover_map.get(code),
+                        "turnover_rank": turnover_rank_map.get(code),
                         "update_time": str(r.get("update_time", "") or ""),
                     }
             self._codes = codes
@@ -320,6 +324,12 @@ class AthMonitor:
                     "update_time": "",
                 }
             self._codes = [c for c, _ in sample]
+            # 売買代金の降順で順位を採番
+            for i, (code, s) in enumerate(
+                sorted(self._state.items(), key=lambda kv: kv[1].get("turnover") or 0, reverse=True),
+                start=1,
+            ):
+                s["turnover_rank"] = i
 
         while not self._stop.is_set():
             with self._lock:
