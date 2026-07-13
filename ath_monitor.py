@@ -87,9 +87,12 @@ class AthMonitor:
         yosen: bool = True,
         yosen_interval: int = 30,
         yosen_ktype=None,
+        display_top: Optional[int] = None,
     ):
         self.market_name = market.upper()
         self.top = top
+        # 表示件数（ATH比の上位 display_top 件に絞る。None=全件）
+        self.display_top = display_top
         self.host = host
         self.port = port
         self.extended_time = extended_time
@@ -185,6 +188,9 @@ class AthMonitor:
                     }
                 )
         rows.sort(key=lambda x: x["pct"], reverse=True)
+        # ATH比の上位 display_top 件に絞る（監視は全銘柄のまま、表示のみ限定）
+        if self.display_top:
+            rows = rows[: self.display_top]
         for i, r in enumerate(rows, start=1):
             r["rank"] = i
         return rows

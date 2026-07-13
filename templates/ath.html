@@ -108,7 +108,7 @@
 </head>
 <body>
   <header>
-    <h1>🎯 上場来高値(ATH)接近ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{{ top }}</span></h1>
+    <h1>🎯 上場来高値(ATH)接近ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{{ top }}{% if show %} → ATH比上位{{ show }}{% endif %}</span></h1>
     <div class="status">
       <span class="sess CLOSED" id="sess">—</span>
       <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span><span class="badge" id="mode"></span></span>

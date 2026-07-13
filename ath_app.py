@@ -31,6 +31,7 @@ def index():
         "ath.html",
         market=monitor.market_name if monitor else "US",
         top=monitor.top if monitor else 0,
+        show=(monitor.display_top or 0) if monitor else 0,
     )
 
 
@@ -56,6 +57,7 @@ def main():
     parser = argparse.ArgumentParser(description="ATH接近ランキング Web モニター")
     parser.add_argument("--market", default="US", help="市場 (US / HK / JP など。デフォルト: US)")
     parser.add_argument("--top", type=int, default=100, help="売買代金上位の監視銘柄数（デフォルト: 100）")
+    parser.add_argument("--show", type=int, default=20, help="表示するATH比上位の件数（デフォルト: 20。0で全件）")
     parser.add_argument("--host", default="127.0.0.1", help="OpenD のホスト")
     parser.add_argument("--port", type=int, default=11111, help="OpenD のポート")
     parser.add_argument("--no-extended", action="store_true", help="プレ/アフターを購読しない")
@@ -80,6 +82,7 @@ def main():
         yosen=not args.no_yosen,
         yosen_interval=args.yosen_interval,
         yosen_ktype=yosen_ktype,
+        display_top=args.show or None,
     )
     monitor.start()
 
