@@ -186,6 +186,8 @@ class AthMonitor:
                         "yosen_total": yosen_total,
                         "turnover": s.get("turnover"),
                         "turnover_rank": s.get("turnover_rank"),
+                        "market_cap": s.get("market_cap"),
+                        "market_cap_rank": s.get("market_cap_rank"),
                         "is_new_ath": is_new_ath,
                         "ath_updated": bool(s.get("ath_updated")),
                         "update_time": s.get("update_time", ""),
@@ -277,6 +279,7 @@ class AthMonitor:
                         "ath": _f(r.get("highest_history_price")),
                         "ath_updated": False,   # 実行中に当日高値が起動時ATHを超えたら True（以後保持）
                         "prev_close": _f(r.get("prev_close_price")),
+                        "market_cap": _f(r.get("total_market_val")),
                         "last": _f(r.get("last_price")),
                         "high": _f(r.get("high_price")),
                         "pre": _f(r.get("pre_price")),
@@ -286,6 +289,12 @@ class AthMonitor:
                         "turnover_rank": turnover_rank_map.get(code),
                         "update_time": str(r.get("update_time", "") or ""),
                     }
+            # 時価総額順位を採番（ユニバース内を時価総額の降順で）
+            for i, (code, s) in enumerate(
+                sorted(self._state.items(), key=lambda kv: kv[1].get("market_cap") or 0, reverse=True),
+                start=1,
+            ):
+                s["market_cap_rank"] = i
             self._codes = codes
 
         # 2b) 業種（所属INDUSTRYプレート）を取得して付与
@@ -496,6 +505,7 @@ class AthMonitor:
                     "name": name, "industry": random.choice(mock_industry),
                     "ath": ath, "ath_updated": False,
                     "prev_close": round(last * random.uniform(0.97, 1.03), 2),
+                    "market_cap": round(random.uniform(5e10, 4e12), 0),
                     "reg_open": mock_open, "day_open": mock_open, "pre_open": 0.0,
                     "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
@@ -509,6 +519,12 @@ class AthMonitor:
                 start=1,
             ):
                 s["turnover_rank"] = i
+            # 時価総額の降順で順位を採番
+            for i, (code, s) in enumerate(
+                sorted(self._state.items(), key=lambda kv: kv[1].get("market_cap") or 0, reverse=True),
+                start=1,
+            ):
+                s["market_cap_rank"] = i
 
         while not self._stop.is_set():
             with self._lock:
