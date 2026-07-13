@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>moomoo 日本株リアルタイム相場</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --panel: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --up: #ef4444;      /* 日本式: 上昇=赤 */
+      --down: #22c55e;    /* 日本式: 下落=緑 */
+      --flat: #94a3b8;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      padding: 24px;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    h1 { font-size: 20px; margin: 0; font-weight: 600; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--muted);
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      padding: 6px 14px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--flat); }
+    .dot.live { background: #22c55e; box-shadow: 0 0 8px #22c55e; }
+    .dot.mock { background: #f59e0b; box-shadow: 0 0 8px #f59e0b; }
+    .badge {
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+    .badge.realtime { background: #14532d; color: #86efac; }
+    .badge.mock { background: #78350f; color: #fcd34d; }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      transition: box-shadow .15s;
+    }
+    .card.flash-up { box-shadow: 0 0 0 2px var(--up); }
+    .card.flash-down { box-shadow: 0 0 0 2px var(--down); }
+    .card-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 12px;
+    }
+    .name { font-size: 16px; font-weight: 600; }
+    .code { font-size: 12px; color: var(--muted); font-family: monospace; }
+    .price {
+      font-size: 34px;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+      line-height: 1.1;
+    }
+    .change {
+      font-size: 15px;
+      font-weight: 600;
+      margin-top: 4px;
+      font-variant-numeric: tabular-nums;
+    }
+    .up { color: var(--up); }
+    .down { color: var(--down); }
+    .flat { color: var(--flat); }
+    .stats {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 16px;
+      font-size: 13px;
+    }
+    .stat { display: flex; justify-content: space-between; }
+    .stat .label { color: var(--muted); }
+    .stat .val { font-variant-numeric: tabular-nums; }
+    .updated { margin-top: 14px; font-size: 11px; color: var(--muted); font-family: monospace; }
+    footer { margin-top: 24px; font-size: 12px; color: var(--muted); }
+    a { color: #60a5fa; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📈 moomoo 日本株リアルタイム相場</h1>
+    <div class="status">
+      <span class="dot" id="conn-dot"></span>
+      <span id="conn-text">接続中...</span>
+      <span class="badge" id="mode-badge"></span>
+    </div>
+  </header>
+
+  <div class="grid" id="grid"></div>
+
+  <footer>
+    データソース: moomoo OpenD (futu-api) 経由。<span id="mock-note"></span>
+    銘柄コードはカンマ区切りで <code>python app.py --codes 9984,7203</code> のように指定できます。
+  </footer>
+
+  <script>
+    const grid = document.getElementById('grid');
+    const cards = {};
+    const lastPrice = {};
+
+    function fmt(n, digits = 1) {
+      if (n === null || n === undefined || isNaN(n)) return '-';
+      return Number(n).toLocaleString('ja-JP', {
+        minimumFractionDigits: digits, maximumFractionDigits: digits
+      });
+    }
+    function fmtInt(n) {
+      if (n === null || n === undefined || isNaN(n)) return '-';
+      return Number(n).toLocaleString('ja-JP');
+    }
+    function cls(v) { return v > 0 ? 'up' : v < 0 ? 'down' : 'flat'; }
+    function sign(v) { return v > 0 ? '+' : ''; }
+
+    function ensureCard(code) {
+      if (cards[code]) return cards[code];
+      const el = document.createElement('div');
+      el.className = 'card';
+      el.innerHTML = `
+        <div class="card-head">
+          <span class="name" data-f="name">-</span>
+          <span class="code">${code}</span>
+        </div>
+        <div class="price" data-f="price">-</div>
+        <div class="change" data-f="change">-</div>
+        <div class="stats">
+          <div class="stat"><span class="label">始値</span><span class="val" data-f="open">-</span></div>
+          <div class="stat"><span class="label">前日終値</span><span class="val" data-f="prev">-</span></div>
+          <div class="stat"><span class="label">高値</span><span class="val" data-f="high">-</span></div>
+          <div class="stat"><span class="label">安値</span><span class="val" data-f="low">-</span></div>
+          <div class="stat"><span class="label">出来高</span><span class="val" data-f="volume">-</span></div>
+          <div class="stat"><span class="label">売買代金</span><span class="val" data-f="turnover">-</span></div>
+        </div>
+        <div class="updated" data-f="updated">-</div>
+      `;
+      grid.appendChild(el);
+      cards[code] = el;
+      return el;
+    }
+
+    function render(q) {
+      const el = ensureCard(q.code);
+      const $ = (f) => el.querySelector(`[data-f="${f}"]`);
+
+      $('name').textContent = q.name || q.code;
+      $('price').textContent = '¥' + fmt(q.last_price);
+
+      const changeCls = cls(q.change_val);
+      const chEl = $('change');
+      chEl.className = 'change ' + changeCls;
+      chEl.textContent = `${sign(q.change_val)}${fmt(q.change_val, 2)} (${sign(q.change_rate)}${fmt(q.change_rate, 2)}%)`;
+
+      $('open').textContent = fmt(q.open_price);
+      $('prev').textContent = fmt(q.prev_close_price);
+      $('high').textContent = fmt(q.high_price);
+      $('low').textContent = fmt(q.low_price);
+      $('volume').textContent = fmtInt(q.volume);
+      $('turnover').textContent = fmtInt(Math.round(q.turnover));
+      $('updated').textContent = '更新: ' + (q.update_time || '-');
+
+      // 価格変化のフラッシュ演出
+      const prev = lastPrice[q.code];
+      if (prev !== undefined && prev !== q.last_price) {
+        const dir = q.last_price > prev ? 'flash-up' : 'flash-down';
+        el.classList.remove('flash-up', 'flash-down');
+        void el.offsetWidth;
+        el.classList.add(dir);
+        setTimeout(() => el.classList.remove(dir), 400);
+      }
+      lastPrice[q.code] = q.last_price;
+
+      updateModeBadge(q.data_status);
+    }
+
+    function updateModeBadge(status) {
+      const badge = document.getElementById('mode-badge');
+      const dot = document.getElementById('conn-dot');
+      const note = document.getElementById('mock-note');
+      if (status === 'REALTIME') {
+        badge.className = 'badge realtime';
+        badge.textContent = 'REALTIME';
+        dot.className = 'dot live';
+        note.textContent = '';
+      } else {
+        badge.className = 'badge mock';
+        badge.textContent = 'MOCK（擬似）';
+        dot.className = 'dot mock';
+        note.textContent = 'OpenD 未接続のため擬似データを表示中。実データには moomoo OpenD の起動が必要です。';
+      }
+    }
+
+    // SSE 接続
+    function connect() {
+      const es = new EventSource('/api/stream');
+      es.onopen = () => {
+        document.getElementById('conn-text').textContent = '接続済み';
+      };
+      es.onmessage = (ev) => {
+        try { render(JSON.parse(ev.data)); } catch (e) {}
+      };
+      es.onerror = () => {
+        document.getElementById('conn-text').textContent = '再接続中...';
+        document.getElementById('conn-dot').className = 'dot';
+        // EventSource は自動再接続する
+      };
+    }
+    connect();
+  </script>
+</body>
+</html>

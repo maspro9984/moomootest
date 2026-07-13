@@ -1,0 +1,7 @@
+# moomoo (Futu) OpenAPI Python SDK
+# moomoo OpenD ゲートウェイに接続してリアルタイム相場データを取得するために使用します。
+# インストール: pip install -r requirements.txt
+futu-api>=7.0.3308
+
+# Web サーバー
+Flask>=3.0.0
