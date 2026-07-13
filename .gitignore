@@ -6,3 +6,8 @@ env/
 *.log
 FTOpenD.log
 .DS_Store
+
+# OpenD 設定・認証情報（絶対にコミットしない）
+OpenD.xml
+OpenD.ini
+opend/
