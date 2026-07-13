@@ -433,18 +433,35 @@ class AthMonitor:
                 pass
             self._stop.wait(0.3)
 
+    def _universe_path(self) -> str:
+        return UNIVERSE_FILE_TMPL.format(market=self.market_name)
+
+    def _invalidate_universe(self) -> None:
+        """保存済みユニバースを無効化（削除）し、次回起動時に取り直させる。
+
+        US大引けで呼ぶ。稼働中インスタンスの監視銘柄は変えず（顔ぶれ維持）、
+        次回起動時に「その取引日の確定売買代金」で取り直す。
+        """
+        path = self._universe_path()
+        try:
+            if os.path.exists(path):
+                os.remove(path)
+                print("[ath] 取引終了: ユニバースを無効化（次回起動で取り直し）")
+        except Exception as exc:
+            print(f"[ath] ユニバース無効化に失敗: {exc}")
+
     def _load_or_fetch_universe(self, quote_ctx, market) -> List[dict]:
         """ユニバース（売買代金上位N）を取得する。
 
-        保存ファイルがあり、当日(ローカル日付)に取得済みで --refresh-universe 指定が
+        保存ファイルがあり、当日(米国東部日付)に取得済みで --refresh-universe 指定が
         無ければ、それを再利用する（＝再起動しても顔ぶれが変わらない）。
-        無ければ取得して保存する。日付が変われば取り直す（新しい取引日の前日分）。
+        無ければ取得して保存する。US大引けで無効化 or 日付が変われば取り直す。
 
         ※プレマーケット/引け後に実行すれば、screener の TURNOVER(days=1) は
           直近の完了取引日（＝前日）の確定売買代金になる。
         """
-        path = UNIVERSE_FILE_TMPL.format(market=self.market_name)
-        today = datetime.now().strftime("%Y-%m-%d")
+        path = self._universe_path()
+        today = _et_date()   # 米国東部日付でキー（US大引け後〜翌日でリセット）
 
         if not self.refresh_universe and os.path.exists(path):
             try:
@@ -517,6 +534,8 @@ class AthMonitor:
                     elif old_bucket == "REGULAR":
                         # 大引け(取引終了): ATH更新フラグをリセット（当日高値表示は維持）
                         self._reset_daily(reset_high=False)
+                        # ユニバースも無効化 → 次回起動でその日確定の売買代金上位に取り直す
+                        self._invalidate_universe()
         except Exception:
             pass
 
