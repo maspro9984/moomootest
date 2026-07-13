@@ -163,28 +163,18 @@
       return '#3b82f6';
     }
 
-    // コード(例 US.AAPL / JP.9984)から チャート・情報(四季報)リンクを生成
+    // コード(例 US.AAPL / JP.9984)から 日本のYahoo Finance のチャート・企業情報リンクを生成
+    // US銘柄はティッカー直、JPは <code>.T、HKは <code>.HK。
     function links(code) {
       const parts = String(code).split('.');
       const mkt = parts[0], sym = parts[1] || code;
-      let chart, info, infoLabel;
-      if (mkt === 'JP') {
-        const s = sym + '.T';
-        chart = `https://www.tradingview.com/symbols/TSE-${sym}/`;
-        info = `https://finance.yahoo.co.jp/quote/${s}`;
-        infoLabel = '四季報';
-      } else if (mkt === 'HK') {
-        const s = sym.padStart(4, '0') + '.HK';
-        chart = `https://www.tradingview.com/symbols/HKEX-${sym}/`;
-        info = `https://finance.yahoo.com/quote/${s}`;
-        infoLabel = 'Yahoo';
-      } else {
-        chart = `https://www.tradingview.com/symbols/${sym}/`;
-        info = `https://finance.yahoo.com/quote/${sym}`;
-        infoLabel = 'Yahoo';
-      }
-      return `<a href="${chart}" target="_blank" rel="noopener">📈チャート</a>`
-           + `<a href="${info}" target="_blank" rel="noopener">📄${infoLabel}</a>`;
+      let q;
+      if (mkt === 'JP') q = sym + '.T';
+      else if (mkt === 'HK') q = sym.padStart(4, '0') + '.HK';
+      else q = sym;  // US など: ティッカー直
+      const base = `https://finance.yahoo.co.jp/quote/${q}`;
+      return `<a href="${base}/chart" target="_blank" rel="noopener">📈チャート</a>`
+           + `<a href="${base}/profile" target="_blank" rel="noopener">📄企業情報</a>`;
     }
 
     function rowHtml(r) {
