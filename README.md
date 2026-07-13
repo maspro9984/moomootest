@@ -132,8 +132,32 @@ python app.py --codes US.GOOGL                     # Web 表示
 | `app.py` | Flask アプリ本体。SSE でリアルタイム配信 |
 | `moomoo_client.py` | OpenD への接続・購読・モックデータ生成 |
 | `check_opend.py` | OpenD 接続・実データ取得の診断ツール |
+| `top_turnover.py` | 売買代金上位N銘柄の取得（スクリーナー） |
 | `templates/index.html` | リアルタイム表示のフロントエンド |
 | `requirements.txt` | Python 依存 |
+
+---
+
+## 売買代金ランキングの取得（top_turnover.py）
+
+前日（直近取引日）の**売買代金（TURNOVER）上位N銘柄**を、moomoo の
+スクリーナー API (`get_stock_filter`) で取得します。米国株はリアルタイム
+権限が無くても、この銘柄スクリーナーは利用できる場合が多いです。
+
+```bash
+python top_turnover.py                      # 米国 上位100
+python top_turnover.py --top 50             # 米国 上位50
+python top_turnover.py --market US --csv us_top100.csv   # CSV 保存
+python top_turnover.py --market HK --top 30 # 香港 上位30
+```
+
+出力: 順位 / コード / 銘柄名 / 現在値 / 売買代金 を表形式で表示。
+`--csv PATH` を付けると CSV にも保存します（Excel 用に UTF-8 BOM 付き）。
+
+> 売買代金 = その取引日に約定した金額の合計。米国市場の**取引終了後**に
+> 実行すると、直近取引日（＝前日）の確定値が得られます。
+> `スクリーナー取得に失敗` と出る場合は OpenD のログイン状態、または
+> 対象市場の相場権限を確認してください。
 
 ---
 
