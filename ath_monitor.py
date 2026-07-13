@@ -415,10 +415,29 @@ class AthMonitor:
             if ret == ft.RET_OK:
                 key = f"market_{self.market_name.lower()}"
                 raw = gs.get(key) or gs.get("market_us") or ""
+                new_bucket = _session_bucket(str(raw))
+                old_bucket = self._session
                 self._session_raw = str(raw)
-                self._session = _session_bucket(str(raw))
+                self._session = new_bucket
+                if old_bucket != new_bucket:
+                    if new_bucket == "REGULAR":
+                        # レギュラー開始＝新しい取引日: 当日高値とフラグをリセット
+                        self._reset_daily(reset_high=True)
+                    elif old_bucket == "REGULAR":
+                        # 大引け(取引終了): ATH更新フラグをリセット（当日高値表示は維持）
+                        self._reset_daily(reset_high=False)
         except Exception:
             pass
+
+    def _reset_daily(self, reset_high: bool) -> None:
+        """ATH更新フラグ（と任意で当日高値）をリセットする。"""
+        with self._lock:
+            for s in self._state.values():
+                s["ath_updated"] = False
+                if reset_high:
+                    s["high"] = 0.0
+        label = "レギュラー開始" if reset_high else "取引終了(大引け)"
+        print(f"[ath] {label}: ATH更新フラグをリセットしました")
 
     def _on_row(self, row) -> None:
         try:
@@ -441,8 +460,9 @@ class AthMonitor:
             # 当日高値は単調に更新（realtime の high_price を採用しつつ後退させない）
             if high:
                 s["high"] = max(s.get("high") or 0.0, high)
-            # 起動時ATHを当日高値が超えたら「ATH更新」を確定（スティッキー）
-            if s.get("ath") and (s.get("high") or 0.0) > s["ath"]:
+            # レギュラーセッション中に当日高値が起動時ATHを超えたら「ATH更新」を確定。
+            # 米国レギュラー終了(大引け)で _refresh_session がリセットする。
+            if self._session == "REGULAR" and s.get("ath") and high > s["ath"]:
                 s["ath_updated"] = True
             for fld, key in (("pre", "pre_price"), ("after", "after_price"), ("overnight", "overnight_price")):
                 v = _f(_rowget(row, key))
