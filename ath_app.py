@@ -59,9 +59,17 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="OpenD のホスト")
     parser.add_argument("--port", type=int, default=11111, help="OpenD のポート")
     parser.add_argument("--no-extended", action="store_true", help="プレ/アフターを購読しない")
+    parser.add_argument("--no-yosen", action="store_true", help="陽線率の算出を無効にする")
+    parser.add_argument("--yosen-interval", type=int, default=30, help="陽線率の更新間隔(秒)。デフォルト30")
+    parser.add_argument("--yosen-tf", choices=["1m", "5m"], default="5m", help="陽線率の足種。デフォルト5m")
     parser.add_argument("--web-host", default="127.0.0.1", help="Web サーバーのホスト")
     parser.add_argument("--web-port", type=int, default=5001, help="Web サーバーのポート")
     args = parser.parse_args()
+
+    from ath_monitor import ft as _ft
+    yosen_ktype = None
+    if _ft is not None:
+        yosen_ktype = _ft.KLType.K_1M if args.yosen_tf == "1m" else _ft.KLType.K_5M
 
     monitor = AthMonitor(
         market=args.market,
@@ -69,6 +77,9 @@ def main():
         host=args.host,
         port=args.port,
         extended_time=not args.no_extended,
+        yosen=not args.no_yosen,
+        yosen_interval=args.yosen_interval,
+        yosen_ktype=yosen_ktype,
     )
     monitor.start()
 

@@ -19,6 +19,7 @@ from __future__ import annotations
 import random
 import threading
 import time
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 
 import top_turnover as tt  # fetch_top / resolve_market / ft を再利用
@@ -32,6 +33,28 @@ SNAPSHOT_CHUNK = 50
 def _chunked(seq, n):
     for i in range(0, len(seq), n):
         yield seq[i : i + n]
+
+
+def _classify_session(time_key: str) -> str:
+    """分足の時刻(ET/市場ローカル)を PRE / REGULAR / AFTER に分類する。"""
+    try:
+        h = int(time_key[11:13])
+        m = int(time_key[14:16])
+        t = h * 60 + m
+    except Exception:
+        return "OTHER"
+    if 4 * 60 <= t < 9 * 60 + 30:
+        return "PRE"
+    if 9 * 60 + 30 <= t < 16 * 60:
+        return "REGULAR"
+    if 16 * 60 <= t < 20 * 60:
+        return "AFTER"
+    return "OTHER"
+
+
+def _rate(bits: List[int]) -> Optional[float]:
+    """陽線率(%) = 陽線本数 / 総本数 * 100。本数0なら None。"""
+    return round(sum(bits) / len(bits) * 100.0, 1) if bits else None
 
 
 def _session_bucket(market_state: str) -> str:
@@ -61,12 +84,19 @@ class AthMonitor:
         host: str = "127.0.0.1",
         port: int = 11111,
         extended_time: bool = True,
+        yosen: bool = True,
+        yosen_interval: int = 30,
+        yosen_ktype=None,
     ):
         self.market_name = market.upper()
         self.top = top
         self.host = host
         self.port = port
         self.extended_time = extended_time
+        # 陽線率: 当日分足を定期取得して算出（既定 5分足・30秒毎）
+        self.yosen = yosen
+        self.yosen_interval = yosen_interval
+        self.yosen_ktype = yosen_ktype or (ft.KLType.K_5M if ft else None)
 
         self._state: Dict[str, dict] = {}   # code -> {name, ath, last, high, pre, after, overnight, turnover, update_time}
         self._codes: List[str] = []
@@ -125,6 +155,10 @@ class AthMonitor:
                     continue
                 pct = cur / eff_ath * 100.0
                 is_new_ath = bool(ath and high and high >= ath)
+                # 前日比（現在値 − 前日終値）
+                prev_close = s.get("prev_close") or 0.0
+                change_val = (cur - prev_close) if prev_close else None
+                change_rate = (change_val / prev_close * 100.0) if change_val is not None else None
                 rows.append(
                     {
                         "code": code,
@@ -135,6 +169,14 @@ class AthMonitor:
                         "orig_ath": round(ath, 4),
                         "high": round(high, 4),
                         "pct": round(pct, 4),
+                        "change": round(change_val, 4) if change_val is not None else None,
+                        "change_rate": round(change_rate, 4) if change_rate is not None else None,
+                        "yosen_pre": s.get("yosen_pre"),
+                        "yosen_pre_n": s.get("yosen_pre_n", 0),
+                        "yosen_reg": s.get("yosen_reg"),
+                        "yosen_reg_n": s.get("yosen_reg_n", 0),
+                        "yosen_total": s.get("yosen_total"),
+                        "yosen_total_n": s.get("yosen_total_n", 0),
                         "turnover": s.get("turnover"),
                         "turnover_rank": s.get("turnover_rank"),
                         "is_new_ath": is_new_ath,
@@ -222,6 +264,7 @@ class AthMonitor:
                         "name": r.get("name", "") or "",
                         "industry": "",
                         "ath": _f(r.get("highest_history_price")),
+                        "prev_close": _f(r.get("prev_close_price")),
                         "last": _f(r.get("last_price")),
                         "high": _f(r.get("high_price")),
                         "pre": _f(r.get("pre_price")),
@@ -266,11 +309,69 @@ class AthMonitor:
         self._refresh_session()
         print(f"[ath] リアルタイム監視を開始: {self.market_name} 上位{len(codes)}銘柄")
 
+        # 陽線率の定期取得（当日分足）をバックグラウンドで開始
+        if self.yosen and self.yosen_ktype is not None:
+            threading.Thread(target=self._yosen_loop, daemon=True).start()
+
         # 接続維持しつつ、セッション状態を定期更新
         while not self._stop.is_set():
             time.sleep(3)
             self._refresh_session()
         return True
+
+    # ---- 陽線率（当日分足） ------------------------------------------ #
+    def _yosen_loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                self._refresh_yosen()
+            except Exception as exc:  # pragma: no cover
+                print(f"[ath] 陽線率の更新エラー: {exc}")
+            self._stop.wait(self.yosen_interval)
+
+    def _refresh_yosen(self) -> None:
+        if self._quote_ctx is None:
+            return
+        # JST基準で前後1日を範囲指定すれば、ETの当該取引日を確実に含む
+        now = datetime.now()
+        start = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        end = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        for code in list(self._codes):
+            if self._stop.is_set():
+                break
+            try:
+                ret, kl, _ = self._quote_ctx.request_history_kline(
+                    code, start=start, end=end,
+                    ktype=self.yosen_ktype, autype=ft.AuType.NONE,
+                    max_count=1000, extended_time=True,
+                )
+                if ret != ft.RET_OK or kl is None or len(kl) == 0:
+                    self._stop.wait(0.3)
+                    continue
+                # 最新の取引日のみを対象にする
+                latest = max(str(t)[:10] for t in kl["time_key"])
+                pre: List[int] = []
+                reg: List[int] = []
+                allc: List[int] = []
+                for _, r in kl.iterrows():
+                    tk = str(r["time_key"])
+                    if tk[:10] != latest:
+                        continue
+                    pos = 1 if _f(r["close"]) > _f(r["open"]) else 0
+                    allc.append(pos)
+                    sess = _classify_session(tk)
+                    if sess == "PRE":
+                        pre.append(pos)
+                    elif sess == "REGULAR":
+                        reg.append(pos)
+                with self._lock:
+                    s = self._state.get(code)
+                    if s is not None:
+                        s["yosen_pre"], s["yosen_pre_n"] = _rate(pre), len(pre)
+                        s["yosen_reg"], s["yosen_reg_n"] = _rate(reg), len(reg)
+                        s["yosen_total"], s["yosen_total_n"] = _rate(allc), len(allc)
+            except Exception:
+                pass
+            self._stop.wait(0.3)
 
     def _fetch_industries(self, quote_ctx, codes) -> Dict[str, str]:
         """各銘柄の所属 INDUSTRY プレート名（＝業種）を取得する。取得失敗は空扱い。"""
@@ -316,6 +417,9 @@ class AthMonitor:
                 return
             last = _f(_rowget(row, "last_price"))
             high = _f(_rowget(row, "high_price"))
+            prev_close = _f(_rowget(row, "prev_close_price"))
+            if prev_close:
+                s["prev_close"] = prev_close
             if last:
                 s["last"] = last
             # 当日高値は単調に更新（realtime の high_price を採用しつつ後退させない）
@@ -347,7 +451,8 @@ class AthMonitor:
                 last = round(ath * random.uniform(0.4, 0.99), 2)
                 self._state[code] = {
                     "name": name, "industry": random.choice(mock_industry),
-                    "ath": ath, "last": last, "high": last,
+                    "ath": ath, "prev_close": round(last * random.uniform(0.97, 1.03), 2),
+                    "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
                     "turnover": round(random.uniform(2e9, 3e10), 0),
                     "update_time": "",
