@@ -129,6 +129,7 @@ class AthMonitor:
                     {
                         "code": code,
                         "name": s.get("name", ""),
+                        "industry": s.get("industry", ""),
                         "cur": round(cur, 4),
                         "ath": round(eff_ath, 4),
                         "orig_ath": round(ath, 4),
@@ -219,6 +220,7 @@ class AthMonitor:
                     code = r["code"]
                     self._state[code] = {
                         "name": r.get("name", "") or "",
+                        "industry": "",
                         "ath": _f(r.get("highest_history_price")),
                         "last": _f(r.get("last_price")),
                         "high": _f(r.get("high_price")),
@@ -230,6 +232,13 @@ class AthMonitor:
                         "update_time": str(r.get("update_time", "") or ""),
                     }
             self._codes = codes
+
+        # 2b) 業種（所属INDUSTRYプレート）を取得して付与
+        industries = self._fetch_industries(quote_ctx, codes)
+        with self._lock:
+            for code, ind in industries.items():
+                if code in self._state:
+                    self._state[code]["industry"] = ind
 
         # 3) QUOTE リアルタイム購読
         monitor = self
@@ -262,6 +271,24 @@ class AthMonitor:
             time.sleep(3)
             self._refresh_session()
         return True
+
+    def _fetch_industries(self, quote_ctx, codes) -> Dict[str, str]:
+        """各銘柄の所属 INDUSTRY プレート名（＝業種）を取得する。取得失敗は空扱い。"""
+        out: Dict[str, str] = {}
+        try:
+            for chunk in _chunked(codes, SNAPSHOT_CHUNK):
+                ret, d = quote_ctx.get_owner_plate(chunk)
+                if ret != ft.RET_OK:
+                    continue
+                for _, r in d.iterrows():
+                    if str(r.get("plate_type", "")).upper() != "INDUSTRY":
+                        continue
+                    code = r.get("code")
+                    if code and code not in out:
+                        out[code] = str(r.get("plate_name", "") or "")
+        except Exception as exc:  # pragma: no cover
+            print(f"[ath] 業種取得をスキップ: {exc}")
+        return out
 
     def _refresh_session(self) -> None:
         if self._quote_ctx is None:
@@ -313,12 +340,14 @@ class AthMonitor:
             ("US.AMD", "AMD"), ("US.GOOGL", "アルファベット"), ("US.AVGO", "ブロードコム"),
             ("US.MU", "マイクロン"), ("US.NFLX", "ネットフリックス"), ("US.PLTR", "パランティア"),
         ][: max(1, min(self.top, 12))]
+        mock_industry = ["半導体", "ソフトウェア", "ネット・小売", "自動車", "民生用電子製品"]
         with self._lock:
             for code, name in sample:
                 ath = round(random.uniform(100, 1000), 2)
                 last = round(ath * random.uniform(0.4, 0.99), 2)
                 self._state[code] = {
-                    "name": name, "ath": ath, "last": last, "high": last,
+                    "name": name, "industry": random.choice(mock_industry),
+                    "ath": ath, "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
                     "turnover": round(random.uniform(2e9, 3e10), 0),
                     "update_time": "",

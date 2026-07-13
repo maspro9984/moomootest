@@ -72,6 +72,14 @@
     .rank.top1 { color: #fde047; } .rank.top2 { color: #e2e8f0; } .rank.top3 { color: #fdba74; }
     .code { font-family: monospace; color: var(--accent); }
     .name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    .industry { color: #a5b4fc; font-size: 12px; max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.links { white-space: nowrap; }
+    td.links a {
+      display: inline-block; font-size: 11px; text-decoration: none; color: var(--text);
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 5px;
+      padding: 3px 7px; margin-right: 4px;
+    }
+    td.links a:hover { border-color: var(--accent); color: var(--accent); }
     .cur { font-weight: 700; }
 
     /* ATH比 バー */
@@ -105,6 +113,8 @@
           <th class="l">#</th>
           <th class="l">コード</th>
           <th class="l">銘柄名</th>
+          <th class="l">業種</th>
+          <th class="l">リンク</th>
           <th>現在値</th>
           <th>上場来高値</th>
           <th>ATH比</th>
@@ -114,7 +124,7 @@
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="9" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+        <tr><td colspan="11" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
       </tbody>
     </table>
   </div>
@@ -153,6 +163,30 @@
       return '#3b82f6';
     }
 
+    // コード(例 US.AAPL / JP.9984)から チャート・情報(四季報)リンクを生成
+    function links(code) {
+      const parts = String(code).split('.');
+      const mkt = parts[0], sym = parts[1] || code;
+      let chart, info, infoLabel;
+      if (mkt === 'JP') {
+        const s = sym + '.T';
+        chart = `https://www.tradingview.com/symbols/TSE-${sym}/`;
+        info = `https://finance.yahoo.co.jp/quote/${s}`;
+        infoLabel = '四季報';
+      } else if (mkt === 'HK') {
+        const s = sym.padStart(4, '0') + '.HK';
+        chart = `https://www.tradingview.com/symbols/HKEX-${sym}/`;
+        info = `https://finance.yahoo.com/quote/${s}`;
+        infoLabel = 'Yahoo';
+      } else {
+        chart = `https://www.tradingview.com/symbols/${sym}/`;
+        info = `https://finance.yahoo.com/quote/${sym}`;
+        infoLabel = 'Yahoo';
+      }
+      return `<a href="${chart}" target="_blank" rel="noopener">📈チャート</a>`
+           + `<a href="${info}" target="_blank" rel="noopener">📄${infoLabel}</a>`;
+    }
+
     function rowHtml(r) {
       const rankCls = r.rank <= 3 ? ' top' + r.rank : '';
       const w = Math.max(2, Math.min(100, r.pct));
@@ -161,6 +195,8 @@
         <td class="l rank${rankCls}">${r.rank}</td>
         <td class="l code">${r.code}</td>
         <td class="l name" title="${r.name || ''}">${r.name || ''}</td>
+        <td class="l industry" title="${r.industry || ''}">${r.industry || '-'}</td>
+        <td class="l links">${links(r.code)}</td>
         <td class="cur">$${fmt(r.cur)}</td>
         <td class="muted">$${fmt(r.ath)}</td>
         <td class="pct-cell">
@@ -196,7 +232,7 @@
 
       const rows = data.rows || [];
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="9" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
         return;
       }
       // 既存行を再利用しつつ、順位変動でフラッシュ
