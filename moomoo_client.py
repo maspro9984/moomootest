@@ -3,7 +3,7 @@
 moomoo OpenAPI の構成:
   [このツール] --(TCP 127.0.0.1:11111)--> [OpenD ゲートウェイ] --> [moomoo サーバー]
 
-OpenD が起動していない / futu-api が未インストールの場合は、
+OpenD が起動していない / moomoo-api が未インストールの場合は、
 自動的にモックモードにフォールバックして擬似リアルタイムデータを生成します。
 （UI の動作確認用。実データではありません）
 """
@@ -18,18 +18,32 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Callable, Dict, List, Optional
 
-# futu-api は任意依存。無ければモックモードで動作する。
+# SDK は任意依存。無ければモックモードで動作する。
+# moomoo証券は moomoo-api (import名: moomoo) が正式。futu-api も互換なので両対応。
+SDK_NAME: Optional[str] = None
 try:
-    from futu import (  # type: ignore
+    from moomoo import (  # type: ignore
         OpenQuoteContext,
         StockQuoteHandlerBase,
         SubType,
         RET_OK,
     )
 
-    FUTU_AVAILABLE = True
+    SDK_NAME = "moomoo-api"
 except Exception:  # pragma: no cover - 環境依存
-    FUTU_AVAILABLE = False
+    try:
+        from futu import (  # type: ignore
+            OpenQuoteContext,
+            StockQuoteHandlerBase,
+            SubType,
+            RET_OK,
+        )
+
+        SDK_NAME = "futu-api"
+    except Exception:
+        pass
+
+SDK_AVAILABLE = SDK_NAME is not None
 
 
 @dataclass
@@ -116,11 +130,24 @@ class MoomooQuoteClient:
     # internals
     # ------------------------------------------------------------------ #
     def _run(self) -> None:
-        if FUTU_AVAILABLE and self._try_realtime():
+        if not SDK_AVAILABLE:
+            print("[moomoo] SDK (moomoo-api) が未インストールです。`pip install moomoo-api` で実データに対応できます。")
+        elif self._try_realtime():
             return
         # フォールバック
         self._mode = "mock"
         self._run_mock()
+
+    @staticmethod
+    def _opend_reachable(host: str, port: int, timeout: float = 2.0) -> bool:
+        """OpenD の待受ポートに TCP 接続できるかを高速チェックする。"""
+        import socket
+
+        try:
+            with socket.create_connection((host, port), timeout=timeout):
+                return True
+        except OSError:
+            return False
 
     def _publish(self, quote: Quote) -> None:
         with self._lock:
@@ -134,6 +161,15 @@ class MoomooQuoteClient:
     # ---- realtime (futu-api) ---------------------------------------- #
     def _try_realtime(self) -> bool:
         """OpenD への接続と購読を試みる。成功したら True。"""
+        # SDK の接続リトライを待たず、まずポート到達性を即時判定する
+        if not self._opend_reachable(self.host, self.port):
+            print(
+                f"[moomoo] OpenD ({self.host}:{self.port}) に接続できません。"
+                "OpenD が起動しているか確認してください。モックモードで起動します。"
+            )
+            return False
+
+        print(f"[moomoo] SDK: {SDK_NAME} / OpenD {self.host}:{self.port} へ接続します...")
         try:
             quote_ctx = OpenQuoteContext(host=self.host, port=self.port)
         except Exception as exc:  # OpenD 未起動など

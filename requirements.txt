@@ -1,7 +1,8 @@
-# moomoo (Futu) OpenAPI Python SDK
+# moomoo OpenAPI Python SDK（moomoo証券の正式SDK。import名は `moomoo`）
 # moomoo OpenD ゲートウェイに接続してリアルタイム相場データを取得するために使用します。
 # インストール: pip install -r requirements.txt
-futu-api>=7.0.3308
+# ※ 旧 futu-api でも動作します（コードは両対応）
+moomoo-api>=9.0
 
 # Web サーバー
 Flask>=3.0.0
