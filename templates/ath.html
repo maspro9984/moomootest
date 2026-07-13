@@ -123,9 +123,9 @@
           <th>上場来高値</th>
           <th>ATH比</th>
           <th>当日高値</th>
-          <th title="プレマーケットの分足で close&gt;open の割合">陽線率<br>プレ</th>
-          <th title="レギュラーセッションの分足で close&gt;open の割合">陽線率<br>レギュラー</th>
-          <th title="当日全分足(プレ+レギュラー+アフター)で close&gt;open の割合">陽線率<br>トータル</th>
+          <th title="(プレ現在値 - プレ始値) / プレ始値">陽線率<br>プレ</th>
+          <th title="(レギュラー現在値 - レギュラー始値) / レギュラー始値">陽線率<br>レギュラー</th>
+          <th title="(現在値 - 当日始値[プレ始値]) / 当日始値">陽線率<br>トータル</th>
           <th>売買代金順位</th>
           <th>売買代金</th>
         </tr>
@@ -192,14 +192,14 @@
       return `<td class="${cls}">${s}${fmt(v, 2)}${pct ? '%' : ''}</td>`;
     }
 
-    // 陽線率セル（60%以上=緑/40%以下=赤/中間=黄）。title に本数を表示
-    function yosenCell(rate, n) {
-      if (rate === null || rate === undefined || isNaN(rate) || !n) {
-        return '<td class="muted" title="データなし">-</td>';
+    // 陽線率セル = (現在値-始値)/始値。プラス=陽線(緑)/マイナス=陰線(赤)
+    function yosenCell(rate) {
+      if (rate === null || rate === undefined || isNaN(rate)) {
+        return '<td class="muted" title="始値データ待ち">-</td>';
       }
-      const color = rate >= 60 ? '#22c55e' : (rate <= 40 ? '#ef4444' : '#eab308');
-      const up = Math.round(rate * n / 100);
-      return `<td style="color:${color}" title="${n}本中 陽線${up}本">${fmt(rate, 0)}%<span class="yn">(${n})</span></td>`;
+      const cls = rate > 0 ? 'up' : (rate < 0 ? 'down' : 'flat');
+      const s = rate > 0 ? '+' : '';
+      return `<td class="${cls}">${s}${fmt(rate, 2)}%</td>`;
     }
 
     function rowHtml(r) {
@@ -223,9 +223,9 @@
           </div>
         </td>
         <td class="muted">$${fmt(r.high)}</td>
-        ${yosenCell(r.yosen_pre, r.yosen_pre_n)}
-        ${yosenCell(r.yosen_reg, r.yosen_reg_n)}
-        ${yosenCell(r.yosen_total, r.yosen_total_n)}
+        ${yosenCell(r.yosen_pre)}
+        ${yosenCell(r.yosen_reg)}
+        ${yosenCell(r.yosen_total)}
         <td class="muted">${r.turnover_rank ?? '-'}</td>
         <td class="muted">${money(r.turnover)}</td>
       `;

@@ -52,9 +52,9 @@ def _classify_session(time_key: str) -> str:
     return "OTHER"
 
 
-def _rate(bits: List[int]) -> Optional[float]:
-    """陽線率(%) = 陽線本数 / 総本数 * 100。本数0なら None。"""
-    return round(sum(bits) / len(bits) * 100.0, 1) if bits else None
+def _ret_pct(cur: float, base: float) -> Optional[float]:
+    """陽線率 = (現在値 - 始値) / 始値 * 100。基準0/欠損なら None。プラス=陽線。"""
+    return round((cur - base) / base * 100.0, 3) if (base and cur) else None
 
 
 def _session_bucket(market_state: str) -> str:
@@ -159,6 +159,10 @@ class AthMonitor:
                 prev_close = s.get("prev_close") or 0.0
                 change_val = (cur - prev_close) if prev_close else None
                 change_rate = (change_val / prev_close * 100.0) if change_val is not None else None
+                # 陽線率 = (現在値 - 始値)/始値。セッション別。
+                yosen_pre = _ret_pct(s.get("pre") or 0.0, s.get("pre_open") or 0.0)
+                yosen_reg = _ret_pct(s.get("last") or 0.0, s.get("reg_open") or 0.0)
+                yosen_total = _ret_pct(cur, s.get("day_open") or 0.0)
                 rows.append(
                     {
                         "code": code,
@@ -171,12 +175,9 @@ class AthMonitor:
                         "pct": round(pct, 4),
                         "change": round(change_val, 4) if change_val is not None else None,
                         "change_rate": round(change_rate, 4) if change_rate is not None else None,
-                        "yosen_pre": s.get("yosen_pre"),
-                        "yosen_pre_n": s.get("yosen_pre_n", 0),
-                        "yosen_reg": s.get("yosen_reg"),
-                        "yosen_reg_n": s.get("yosen_reg_n", 0),
-                        "yosen_total": s.get("yosen_total"),
-                        "yosen_total_n": s.get("yosen_total_n", 0),
+                        "yosen_pre": yosen_pre,
+                        "yosen_reg": yosen_reg,
+                        "yosen_total": yosen_total,
                         "turnover": s.get("turnover"),
                         "turnover_rank": s.get("turnover_rank"),
                         "is_new_ath": is_new_ath,
@@ -329,6 +330,11 @@ class AthMonitor:
             self._stop.wait(self.yosen_interval)
 
     def _refresh_yosen(self) -> None:
+        """当日分足から各セッションの始値（プレ始値・当日始値・レギュラー始値）を取得する。
+
+        陽線率 = (現在値 - 始値)/始値 は get_ranking で現在値と突き合わせて算出する。
+        レギュラー始値は snapshot の open_price を優先し、無ければ分足から補う。
+        """
         if self._quote_ctx is None:
             return
         # JST基準で前後1日を範囲指定すれば、ETの当該取引日を確実に含む
@@ -347,28 +353,30 @@ class AthMonitor:
                 if ret != ft.RET_OK or kl is None or len(kl) == 0:
                     self._stop.wait(0.3)
                     continue
-                # 最新の取引日のみを対象にする
+                # 最新の取引日のみを対象にする（分足は時刻昇順）
                 latest = max(str(t)[:10] for t in kl["time_key"])
-                pre: List[int] = []
-                reg: List[int] = []
-                allc: List[int] = []
+                pre_open = None
+                reg_open = None
+                day_open = None
                 for _, r in kl.iterrows():
                     tk = str(r["time_key"])
                     if tk[:10] != latest:
                         continue
-                    pos = 1 if _f(r["close"]) > _f(r["open"]) else 0
-                    allc.append(pos)
+                    o = _f(r["open"])
+                    if day_open is None:
+                        day_open = o
                     sess = _classify_session(tk)
-                    if sess == "PRE":
-                        pre.append(pos)
-                    elif sess == "REGULAR":
-                        reg.append(pos)
+                    if sess == "PRE" and pre_open is None:
+                        pre_open = o
+                    elif sess == "REGULAR" and reg_open is None:
+                        reg_open = o
                 with self._lock:
                     s = self._state.get(code)
                     if s is not None:
-                        s["yosen_pre"], s["yosen_pre_n"] = _rate(pre), len(pre)
-                        s["yosen_reg"], s["yosen_reg_n"] = _rate(reg), len(reg)
-                        s["yosen_total"], s["yosen_total_n"] = _rate(allc), len(allc)
+                        # すべて「当日の」始値。未到来のセッションは 0（=陽線率は空）
+                        s["pre_open"] = pre_open or 0.0
+                        s["reg_open"] = reg_open or 0.0
+                        s["day_open"] = day_open or 0.0
             except Exception:
                 pass
             self._stop.wait(0.3)
@@ -449,9 +457,11 @@ class AthMonitor:
             for code, name in sample:
                 ath = round(random.uniform(100, 1000), 2)
                 last = round(ath * random.uniform(0.4, 0.99), 2)
+                mock_open = round(last * random.uniform(0.97, 1.03), 2)
                 self._state[code] = {
                     "name": name, "industry": random.choice(mock_industry),
                     "ath": ath, "prev_close": round(last * random.uniform(0.97, 1.03), 2),
+                    "reg_open": mock_open, "day_open": mock_open, "pre_open": 0.0,
                     "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
                     "turnover": round(random.uniform(2e9, 3e10), 0),
