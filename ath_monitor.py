@@ -33,6 +33,22 @@ SNAPSHOT_CHUNK = 50
 
 # ユニバース（売買代金上位）の保存ファイル名テンプレ
 UNIVERSE_FILE_TMPL = "universe_{market}.json"
+# ATH更新フラグ・基準ATHの保存ファイル名テンプレ（同一取引日なら再起動で復元）
+ATH_STATE_FILE_TMPL = "ath_state_{market}.json"
+
+
+def _et_date() -> str:
+    """米国東部時間の日付（取引日キー）。zoneinfo優先、無ければ夏時間を近似。"""
+    try:
+        from zoneinfo import ZoneInfo
+
+        return datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d")
+    except Exception:
+        from datetime import timezone
+
+        now = datetime.now(timezone.utc)
+        offset = 4 if 3 <= now.month <= 11 else 5  # 3-11月は概ねEDT(-4)
+        return (now - timedelta(hours=offset)).strftime("%Y-%m-%d")
 
 
 def _chunked(seq, n):
@@ -122,6 +138,8 @@ class AthMonitor:
         self._quote_ctx = None
         self._thread: Optional[threading.Thread] = None
         self._started_at = ""
+        self._state_dirty = False   # ATH状態を保存すべき変更があったか
+        self._session_ready = False # 初回セッション判定を済ませたか（起動直後の誤リセット防止）
 
     # ------------------------------------------------------------------ #
     # public API
@@ -312,6 +330,9 @@ class AthMonitor:
                 if code in self._state:
                     self._state[code]["industry"] = ind
 
+        # 2c) 同一取引日ならATH更新フラグ・基準ATHを復元（再起動でハイライトが消えないように）
+        self._restore_ath_state()
+
         # 3) QUOTE リアルタイム購読
         monitor = self
 
@@ -342,10 +363,13 @@ class AthMonitor:
         if self.yosen and self.yosen_ktype is not None:
             threading.Thread(target=self._yosen_loop, daemon=True).start()
 
-        # 接続維持しつつ、セッション状態を定期更新
+        # 接続維持しつつ、セッション状態を定期更新。変更があればATH状態を保存。
         while not self._stop.is_set():
             time.sleep(3)
             self._refresh_session()
+            if self._state_dirty:
+                self._state_dirty = False
+                self._save_ath_state()
         return True
 
     # ---- 陽線率（当日分足） ------------------------------------------ #
@@ -483,7 +507,10 @@ class AthMonitor:
                 old_bucket = self._session
                 self._session_raw = str(raw)
                 self._session = new_bucket
-                if old_bucket != new_bucket:
+                if not self._session_ready:
+                    # 起動直後の初回判定ではリセットしない（復元済みフラグを守る）
+                    self._session_ready = True
+                elif old_bucket != new_bucket:
                     if new_bucket == "REGULAR":
                         # レギュラー開始＝新しい取引日: 当日高値とフラグをリセット
                         self._reset_daily(reset_high=True)
@@ -500,8 +527,55 @@ class AthMonitor:
                 s["ath_updated"] = False
                 if reset_high:
                     s["high"] = 0.0
+        self._state_dirty = True   # リセット後の状態を保存（再起動で復活させない）
         label = "レギュラー開始" if reset_high else "取引終了(大引け)"
         print(f"[ath] {label}: ATH更新フラグをリセットしました")
+
+    # ---- ATH更新状態の永続化（同一取引日なら再起動で復元） ---------- #
+    def _ath_state_path(self) -> str:
+        return ATH_STATE_FILE_TMPL.format(market=self.market_name)
+
+    def _restore_ath_state(self) -> None:
+        path = self._ath_state_path()
+        data = None
+        if not self.refresh_universe and os.path.exists(path):
+            try:
+                with open(path, encoding="utf-8") as f:
+                    d = json.load(f)
+                if d.get("market") == self.market_name and d.get("date") == _et_date():
+                    data = d
+            except Exception as exc:
+                print(f"[ath] ATH状態の読込失敗: {exc}")
+        if data:
+            base = data.get("baseline") or {}
+            upd = set(data.get("updated") or [])
+            n = 0
+            with self._lock:
+                for code, s in self._state.items():
+                    if base.get(code):
+                        s["ath"] = base[code]   # 当日の基準ATHを復元（新高値検知の基準）
+                    if code in upd:
+                        s["ath_updated"] = True
+                        n += 1
+            print(f"[ath] ATH状態を復元（取引日 {data.get('date')}）: ATH更新済み {n}銘柄")
+        else:
+            # 新しい取引日 or 初回: 現在のATHを基準として保存
+            self._save_ath_state()
+
+    def _save_ath_state(self) -> None:
+        path = self._ath_state_path()
+        try:
+            with self._lock:
+                baseline = {c: s.get("ath") for c, s in self._state.items() if s.get("ath")}
+                updated = [c for c, s in self._state.items() if s.get("ath_updated")]
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {"market": self.market_name, "date": _et_date(),
+                     "baseline": baseline, "updated": updated},
+                    f, ensure_ascii=False,
+                )
+        except Exception as exc:
+            print(f"[ath] ATH状態の保存失敗: {exc}")
 
     def _on_row(self, row) -> None:
         try:
@@ -524,10 +598,16 @@ class AthMonitor:
             # 当日高値は単調に更新（realtime の high_price を採用しつつ後退させない）
             if high:
                 s["high"] = max(s.get("high") or 0.0, high)
-            # レギュラーセッション中に当日高値が起動時ATHを超えたら「ATH更新」を確定。
+            # レギュラーセッション中に当日高値が基準ATHを超えたら「ATH更新」を確定。
             # 米国レギュラー終了(大引け)で _refresh_session がリセットする。
-            if self._session == "REGULAR" and s.get("ath") and high > s["ath"]:
+            if (
+                self._session == "REGULAR"
+                and s.get("ath")
+                and high > s["ath"]
+                and not s.get("ath_updated")
+            ):
                 s["ath_updated"] = True
+                self._state_dirty = True   # 保存対象（実際の保存はメインループで）
             for fld, key in (("pre", "pre_price"), ("after", "after_price"), ("overnight", "overnight_price")):
                 v = _f(_rowget(row, key))
                 if v:
