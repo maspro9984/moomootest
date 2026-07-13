@@ -55,7 +55,7 @@ def main():
     global monitor
     parser = argparse.ArgumentParser(description="ATH接近ランキング Web モニター")
     parser.add_argument("--market", default="US", help="市場 (US / HK / JP など。デフォルト: US)")
-    parser.add_argument("--top", type=int, default=50, help="売買代金上位の監視銘柄数（デフォルト: 50）")
+    parser.add_argument("--top", type=int, default=100, help="売買代金上位の監視銘柄数（デフォルト: 100）")
     parser.add_argument("--host", default="127.0.0.1", help="OpenD のホスト")
     parser.add_argument("--port", type=int, default=11111, help="OpenD のポート")
     parser.add_argument("--no-extended", action="store_true", help="プレ/アフターを購読しない")
