@@ -11,3 +11,6 @@ FTOpenD.log
 OpenD.xml
 OpenD.ini
 opend/
+
+# 実行時に保存されるユニバース（前日の売買代金上位）
+universe_*.json

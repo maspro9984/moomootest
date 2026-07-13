@@ -58,6 +58,7 @@ def main():
     parser.add_argument("--market", default="US", help="市場 (US / HK / JP など。デフォルト: US)")
     parser.add_argument("--top", type=int, default=100, help="売買代金上位の監視銘柄数（デフォルト: 100）")
     parser.add_argument("--show", type=int, default=20, help="表示するATH比上位の件数（デフォルト: 20。0で全件）")
+    parser.add_argument("--refresh-universe", action="store_true", help="保存済みユニバースを使わず売買代金上位を取り直す")
     parser.add_argument("--host", default="127.0.0.1", help="OpenD のホスト")
     parser.add_argument("--port", type=int, default=11111, help="OpenD のポート")
     parser.add_argument("--no-extended", action="store_true", help="プレ/アフターを購読しない")
@@ -83,6 +84,7 @@ def main():
         yosen_interval=args.yosen_interval,
         yosen_ktype=yosen_ktype,
         display_top=args.show or None,
+        refresh_universe=args.refresh_universe,
     )
     monitor.start()
 
