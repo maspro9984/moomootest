@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import os
+import queue
 import random
 import threading
 import time
@@ -113,6 +114,8 @@ class AthMonitor:
         yosen_ktype=None,
         display_top: Optional[int] = None,
         refresh_universe: bool = False,
+        notifier=None,
+        notify_cooldown: int = 3600,
     ):
         self.market_name = market.upper()
         self.top = top
@@ -140,6 +143,10 @@ class AthMonitor:
         self._started_at = ""
         self._state_dirty = False   # ATH状態を保存すべき変更があったか
         self._session_ready = False # 初回セッション判定を済ませたか（起動直後の誤リセット防止）
+        # 通知（ATH更新を Discord 等へ。同一銘柄は notify_cooldown 秒は再通知しない）
+        self.notifier = notifier
+        self.notify_cooldown = notify_cooldown
+        self._notify_queue: "queue.Queue[dict]" = queue.Queue(maxsize=500)
 
     # ------------------------------------------------------------------ #
     # public API
@@ -335,6 +342,16 @@ class AthMonitor:
         # 陽線率の定期取得（当日分足）をバックグラウンドで開始
         if self.yosen and self.yosen_ktype is not None:
             threading.Thread(target=self._yosen_loop, daemon=True).start()
+
+        # 通知スレッド開始＋起動通知（Webhook疎通確認を兼ねる）
+        if self.notifier is not None:
+            threading.Thread(target=self._notify_loop, daemon=True).start()
+            try:
+                self.notifier.send_text(
+                    f"✅ ATHモニター開始: {self.market_name} 上位{len(codes)}銘柄を監視中"
+                )
+            except Exception as exc:
+                print(f"[ath] 起動通知の送信に失敗（Webhook設定を確認）: {exc}")
 
         # 接続維持しつつ、セッション状態を定期更新。変更があればATH状態を保存。
         while not self._stop.is_set():
@@ -607,6 +624,7 @@ class AthMonitor:
         with self._lock:
             for s in self._state.values():
                 s["ath_updated"] = False
+                s["notified_at"] = 0.0   # 通知クールダウンもリセット
                 if reset_high:
                     s["high"] = 0.0
         self._state_dirty = True   # リセット後の状態を保存（再起動で復活させない）
@@ -659,6 +677,51 @@ class AthMonitor:
         except Exception as exc:
             print(f"[ath] ATH状態の保存失敗: {exc}")
 
+    # ---- 通知（ATH更新を Discord 等へ） ------------------------------ #
+    def _maybe_notify(self, code: str, s: dict) -> None:
+        """新高値時に通知をキュー投入。同一銘柄は notify_cooldown 秒は抑制する。
+
+        ※ _on_row のロック内から呼ばれる想定（キュー投入のみで送信はしない）。
+        """
+        if self.notifier is None:
+            return
+        now = time.time()
+        if now - (s.get("notified_at") or 0.0) < self.notify_cooldown:
+            return
+        s["notified_at"] = now
+        cur = s.get("last") or 0.0
+        eff_ath = max(s.get("ath") or 0.0, s.get("high") or 0.0)
+        prev_close = s.get("prev_close") or 0.0
+        ev = {
+            "code": code,
+            "name": s.get("name"),
+            "industry": s.get("industry"),
+            "cur": cur,
+            "ath": eff_ath,
+            "pct": (cur / eff_ath * 100.0) if eff_ath else None,
+            "change_rate": ((cur - prev_close) / prev_close * 100.0) if prev_close else None,
+            "turnover_rank": s.get("turnover_rank"),
+            "market_cap": s.get("market_cap"),
+            "market_cap_rank": s.get("market_cap_rank"),
+        }
+        try:
+            self._notify_queue.put_nowait(ev)
+        except queue.Full:
+            pass
+
+    def _notify_loop(self) -> None:
+        """キューの通知を順次送信（Discordのレート制限に配慮して間隔を空ける）。"""
+        while not self._stop.is_set():
+            try:
+                ev = self._notify_queue.get(timeout=1.0)
+            except queue.Empty:
+                continue
+            try:
+                self.notifier.send_ath_update(ev)
+            except Exception as exc:
+                print(f"[ath] 通知送信エラー: {exc}")
+            self._stop.wait(1.2)   # レート制限対策のペース
+
     def _on_row(self, row) -> None:
         try:
             code = str(row.get("code", "") if hasattr(row, "get") else row["code"])
@@ -678,18 +741,15 @@ class AthMonitor:
             if last:
                 s["last"] = last
             # 当日高値は単調に更新（realtime の high_price を採用しつつ後退させない）
-            if high:
-                s["high"] = max(s.get("high") or 0.0, high)
-            # レギュラーセッション中に当日高値が基準ATHを超えたら「ATH更新」を確定。
-            # 米国レギュラー終了(大引け)で _refresh_session がリセットする。
-            if (
-                self._session == "REGULAR"
-                and s.get("ath")
-                and high > s["ath"]
-                and not s.get("ath_updated")
-            ):
-                s["ath_updated"] = True
-                self._state_dirty = True   # 保存対象（実際の保存はメインループで）
+            if high and high > (s.get("high") or 0.0):
+                s["high"] = high
+                # レギュラー中に基準ATHを超えた「新高値」の瞬間
+                if self._session == "REGULAR" and s.get("ath") and high > s["ath"]:
+                    if not s.get("ath_updated"):
+                        s["ath_updated"] = True
+                        self._state_dirty = True   # 保存対象（実際の保存はメインループで）
+                    # 通知（連続更新はクールダウンで抑制、経過後の更新は再度一度だけ）
+                    self._maybe_notify(code, s)
             for fld, key in (("pre", "pre_price"), ("after", "after_price"), ("overnight", "overnight_price")):
                 v = _f(_rowget(row, key))
                 if v:

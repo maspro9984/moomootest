@@ -16,9 +16,12 @@ from __future__ import annotations
 
 import argparse
 
+import os
+
 from flask import Flask, jsonify, render_template
 
 from ath_monitor import AthMonitor
+from notify import build_notifier
 
 app = Flask(__name__)
 
@@ -59,6 +62,10 @@ def main():
     parser.add_argument("--top", type=int, default=100, help="売買代金上位の監視銘柄数（デフォルト: 100）")
     parser.add_argument("--show", type=int, default=20, help="表示するATH比上位の件数（デフォルト: 20。0で全件）")
     parser.add_argument("--refresh-universe", action="store_true", help="保存済みユニバースを使わず売買代金上位を取り直す")
+    parser.add_argument("--discord-webhook", default=os.environ.get("ATH_DISCORD_WEBHOOK"),
+                        help="Discord Webhook URL（未指定なら環境変数 ATH_DISCORD_WEBHOOK を使用）")
+    parser.add_argument("--notify-cooldown", type=int, default=3600,
+                        help="同一銘柄の再通知を抑制する秒数（デフォルト3600=1時間）")
     parser.add_argument("--host", default="127.0.0.1", help="OpenD のホスト")
     parser.add_argument("--port", type=int, default=11111, help="OpenD のポート")
     parser.add_argument("--no-extended", action="store_true", help="プレ/アフターを購読しない")
@@ -74,6 +81,9 @@ def main():
     if _ft is not None:
         yosen_ktype = _ft.KLType.K_1M if args.yosen_tf == "1m" else _ft.KLType.K_5M
 
+    notifier = build_notifier(args.discord_webhook)
+    print("[ath] Discord通知:", "有効" if notifier else "無効（--discord-webhook か 環境変数 ATH_DISCORD_WEBHOOK を設定）")
+
     monitor = AthMonitor(
         market=args.market,
         top=args.top,
@@ -85,6 +95,8 @@ def main():
         yosen_ktype=yosen_ktype,
         display_top=args.show or None,
         refresh_universe=args.refresh_universe,
+        notifier=notifier,
+        notify_cooldown=args.notify_cooldown,
     )
     monitor.start()
 

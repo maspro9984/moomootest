@@ -15,3 +15,6 @@ opend/
 # 実行時に保存されるユニバース（前日の売買代金上位）・ATH更新状態
 universe_*.json
 ath_state_*.json
+
+# 通知Webhook等の秘密情報（環境変数ファイル）
+.env
