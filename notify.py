@@ -95,7 +95,11 @@ class DiscordNotifier:
         req = urllib.request.Request(
             self.webhook_url,
             data=data,
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                # Discord(Cloudflare)は既定の Python-urllib UA を403で弾くため明示する
+                "User-Agent": "ath-monitor (https://github.com/maspro9984/moomootest, 1.0)",
+            },
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=10) as resp:
