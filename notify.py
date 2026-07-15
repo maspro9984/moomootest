@@ -61,20 +61,25 @@ class DiscordNotifier:
         def price(v):
             return f"${v:,.2f}" if isinstance(v, (int, float)) else "-"
 
+        def spct(v):
+            return f"{'+' if v > 0 else ''}{v:.2f}%" if isinstance(v, (int, float)) else "-"
+
         fields = [
             {"name": "現在値", "value": price(ev.get("cur")), "inline": True},
             {"name": "上場来高値", "value": price(ev.get("ath")), "inline": True},
-            {"name": "ATH比", "value": (f"{ev['pct']:.2f}%" if isinstance(ev.get("pct"), (int, float)) else "-"), "inline": True},
         ]
         chg = ev.get("change_rate")
         if isinstance(chg, (int, float)):
-            fields.append({"name": "前日比", "value": f"{'+' if chg > 0 else ''}{chg:.2f}%", "inline": True})
+            fields.append({"name": "前日比", "value": spct(chg), "inline": True})
+        # 陽線率（プレ/レギュラー/トータル）
+        fields.append({"name": "陽線率(プレ)", "value": spct(ev.get("yosen_pre")), "inline": True})
+        fields.append({"name": "陽線率(レギュラー)", "value": spct(ev.get("yosen_reg")), "inline": True})
+        fields.append({"name": "陽線率(トータル)", "value": spct(ev.get("yosen_total")), "inline": True})
+        if ev.get("turnover_rank"):
+            fields.append({"name": "売買代金順位", "value": f"#{ev['turnover_rank']}", "inline": True})
         if ev.get("industry"):
             fields.append({"name": "業種", "value": str(ev["industry"]), "inline": True})
-        if ev.get("turnover_rank"):
-            fields.append({"name": "売買代金順位", "value": str(ev["turnover_rank"]), "inline": True})
-        if ev.get("market_cap_rank"):
-            fields.append({"name": "時価総額", "value": f"{money(ev.get('market_cap'))} (#{ev['market_cap_rank']})", "inline": True})
+        fields.append({"name": "チャート", "value": f"[TradingViewで開く]({_chart_url(code)})", "inline": False})
 
         return {
             "title": f"🚀 上場来高値 更新: {name} ({code})",
@@ -89,17 +94,27 @@ class DiscordNotifier:
         code = ev.get("code", "")
         name = ev.get("name") or code
         cur = ev.get("cur")
-        pct = ev.get("pct")
         chg = ev.get("change_rate")
+        yreg = ev.get("yosen_reg")
+        ytot = ev.get("yosen_total")
+
+        def spct(v):
+            return f"{'+' if v > 0 else ''}{v:.2f}%" if isinstance(v, (int, float)) else None
+
         seg = []
         if isinstance(cur, (int, float)):
             seg.append(f"現在値 ${cur:,.2f}")
-        if isinstance(pct, (int, float)):
-            seg.append(f"ATH比 {pct:.2f}%")
-        if isinstance(chg, (int, float)):
-            seg.append(f"前日比 {'+' if chg > 0 else ''}{chg:.2f}%")
+        if spct(chg):
+            seg.append(f"前日比 {spct(chg)}")
+        if spct(yreg):
+            seg.append(f"陽線率(レギュラー) {spct(yreg)}")
+        if spct(ytot):
+            seg.append(f"陽線率(トータル) {spct(ytot)}")
+        if ev.get("turnover_rank"):
+            seg.append(f"売買代金順位 #{ev['turnover_rank']}")
         head = f"🚀 **{name} ({code})** 上場来高値を更新"
-        return head + ("　" + " / ".join(seg) if seg else "")
+        body = head + ("　" + " / ".join(seg) if seg else "")
+        return body + f"\n[📈 チャート]({_chart_url(code)})"
 
     # ---- 送信 ---- #
     def send_ath_update(self, ev: dict) -> None:
