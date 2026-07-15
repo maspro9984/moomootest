@@ -18,7 +18,7 @@ import argparse
 
 import os
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, render_template, request
 
 from ath_monitor import AthMonitor
 from notify import build_notifier
@@ -35,14 +35,28 @@ def index():
         market=monitor.market_name if monitor else "US",
         top=monitor.top if monitor else 0,
         show=(monitor.display_top or 0) if monitor else 0,
+        view="ath",
+    )
+
+
+@app.route("/turnover")
+def turnover_page():
+    """前日売買代金 上位の静的ページ（同レイアウト、更新なし）。"""
+    return render_template(
+        "ath.html",
+        market=monitor.market_name if monitor else "US",
+        top=monitor.top if monitor else 0,
+        show=(monitor.display_top or 0) if monitor else 0,
+        view="turnover",
     )
 
 
 @app.route("/api/ranking")
 def api_ranking():
-    """現在の ATH 接近ランキングを JSON で返す（フロントが定期ポーリング）。"""
+    """ランキングを JSON で返す。?sort=turnover で前日売買代金順。"""
     if monitor is None:
         return jsonify({"mode": "unknown", "rows": []})
+    sort = "turnover" if request.args.get("sort") == "turnover" else "pct"
     return jsonify(
         {
             "mode": monitor.mode,
@@ -50,7 +64,7 @@ def api_ranking():
             "session_raw": monitor.session_raw,
             "market": monitor.market_name,
             "universe_n": monitor.universe_n,
-            "rows": monitor.get_ranking(),
+            "rows": monitor.get_ranking(sort=sort),
         }
     )
 

@@ -179,8 +179,13 @@ class AthMonitor:
             except Exception:
                 pass
 
-    def get_ranking(self) -> List[dict]:
-        """現在の状態から ATH 接近率降順のランキングを組み立てて返す。"""
+    def get_ranking(self, sort: str = "pct") -> List[dict]:
+        """現在の状態からランキングを組み立てて返す。
+
+        sort="pct"（既定）: ATH接近率の降順。
+        sort="turnover": 前日売買代金の順位（昇順）。
+        いずれも display_top 件に絞る。
+        """
         sess = self._session
         rows: List[dict] = []
         with self._lock:
@@ -230,8 +235,13 @@ class AthMonitor:
                         "update_time": s.get("update_time", ""),
                     }
                 )
-        rows.sort(key=lambda x: x["pct"], reverse=True)
-        # ATH比の上位 display_top 件に絞る（監視は全銘柄のまま、表示のみ限定）
+        if sort == "turnover":
+            # 前日売買代金の順位（昇順）。順位が無いものは末尾。
+            rows = [r for r in rows if r.get("turnover_rank")]
+            rows.sort(key=lambda x: x["turnover_rank"])
+        else:
+            rows.sort(key=lambda x: x["pct"], reverse=True)
+        # 上位 display_top 件に絞る（監視は全銘柄のまま、表示のみ限定）
         if self.display_top:
             rows = rows[: self.display_top]
         for i, r in enumerate(rows, start=1):

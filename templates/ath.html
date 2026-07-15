@@ -37,6 +37,12 @@
     h1 { font-size: 19px; margin: 0; font-weight: 600; }
     h1 .sub { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
     .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .navlink {
+      font-size: 13px; color: var(--accent); text-decoration: none;
+      background: var(--panel2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 6px 14px; white-space: nowrap;
+    }
+    .navlink:hover { border-color: var(--accent); }
     .pill {
       display: inline-flex; align-items: center; gap: 8px; font-size: 13px;
       color: var(--muted); background: var(--panel); border: 1px solid var(--border);
@@ -152,11 +158,19 @@
 </head>
 <body>
   <header>
+    {% if view == "turnover" %}
+    <h1>💰 前日売買代金 上位ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{% if show %}{{ show }}{% else %}{{ top }}{% endif %}（静的）</span></h1>
+    <div class="status">
+      <a class="navlink" href="/">← ATH接近ランキングへ戻る</a>
+    </div>
+    {% else %}
     <h1>🎯 上場来高値(ATH)接近ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{{ top }}{% if show %} → ATH比上位{{ show }}{% endif %}</span></h1>
     <div class="status">
+      <a class="navlink" href="/turnover">💰 前日売買代金ランキング →</a>
       <span class="sess CLOSED" id="sess">—</span>
       <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span><span class="badge" id="mode"></span></span>
     </div>
+    {% endif %}
   </header>
 
   <div class="table-wrap">
@@ -313,23 +327,31 @@
     }
 
     function render(data) {
-      // ステータス
+      // ステータス（前日売買代金ページには一部要素が無いので null ガード）
       const dot = document.getElementById('dot');
       const mode = document.getElementById('mode');
       const note = document.getElementById('mock-note');
+      const conn = document.getElementById('conn');
       if (data.mode === 'realtime') {
-        dot.className = 'dot live'; mode.className = 'badge realtime'; mode.textContent = 'REALTIME';
-        document.getElementById('conn').textContent = '接続済み'; note.textContent = '';
+        if (dot) dot.className = 'dot live';
+        if (mode) { mode.className = 'badge realtime'; mode.textContent = 'REALTIME'; }
+        if (conn) conn.textContent = '接続済み';
+        if (note) note.textContent = '';
       } else if (data.mode === 'mock') {
-        dot.className = 'dot mock'; mode.className = 'badge mock'; mode.textContent = 'MOCK（擬似）';
-        document.getElementById('conn').textContent = 'モック'; note.textContent = ' OpenD未接続のため擬似データを表示中。実データにはOpenDの起動が必要です。';
+        if (dot) dot.className = 'dot mock';
+        if (mode) { mode.className = 'badge mock'; mode.textContent = 'MOCK（擬似）'; }
+        if (conn) conn.textContent = 'モック';
+        if (note) note.textContent = ' OpenD未接続のため擬似データを表示中。実データにはOpenDの起動が必要です。';
       }
       const sess = document.getElementById('sess');
-      const sk = data.session || 'CLOSED';
-      sess.className = 'sess ' + sk;
-      sess.textContent = (SESS_LABEL[sk] || sk) + (data.session_raw ? ` (${data.session_raw})` : '');
-      document.getElementById('meta').textContent =
-        `${data.market} 売買代金上位${data.universe_n}銘柄を監視中。表示 ${data.rows.length} 件。`;
+      if (sess) {
+        const sk = data.session || 'CLOSED';
+        sess.className = 'sess ' + sk;
+        sess.textContent = (SESS_LABEL[sk] || sk) + (data.session_raw ? ` (${data.session_raw})` : '');
+      }
+      const meta = document.getElementById('meta');
+      if (meta) meta.textContent =
+        `${data.market} 売買代金上位${data.universe_n}銘柄${VIEW === 'turnover' ? '（前日基準・静的）' : 'を監視中'}。表示 ${data.rows.length} 件。`;
 
       const rows = data.rows || [];
       if (!rows.length) {
@@ -367,17 +389,23 @@
       tbody.replaceChildren(frag);
     }
 
+    const VIEW = "{{ view|default('ath') }}";
+    const API = VIEW === 'turnover' ? '/api/ranking?sort=turnover' : '/api/ranking';
+
     async function poll() {
       try {
-        const res = await fetch('/api/ranking', { cache: 'no-store' });
+        const res = await fetch(API, { cache: 'no-store' });
         render(await res.json());
       } catch (e) {
-        document.getElementById('conn').textContent = '再接続中...';
-        document.getElementById('dot').className = 'dot';
+        const conn = document.getElementById('conn');
+        if (conn) conn.textContent = '再接続中...';
+        const dot = document.getElementById('dot');
+        if (dot) dot.className = 'dot';
       }
     }
     poll();
-    setInterval(poll, 500);
+    // 前日売買代金ページは静的（更新なし）。ATHページのみリアルタイム更新。
+    if (VIEW !== 'turnover') setInterval(poll, 500);
 
     // ---- チャート モーダル ---- //
     const chartModal = document.getElementById('chart-modal');
