@@ -90,11 +90,11 @@
     }
     td.links a:hover { border-color: var(--accent); color: var(--accent); }
     .cur { font-weight: 700; }
-    /* 現在値の変化: 前回比で上昇=赤 / 下落=青 にフラッシュ（ブリンク） */
-    @keyframes tick-up { from { background: rgba(240, 71, 71, .60); } to { background: transparent; } }
-    @keyframes tick-down { from { background: rgba(59, 130, 246, .60); } to { background: transparent; } }
-    td.cur.up-tick { animation: tick-up .6s ease-out; }
-    td.cur.down-tick { animation: tick-down .6s ease-out; }
+    /* 現在値の変化: 上昇=赤 / 下落=青。変化時に文字をブリンクし、以後その色を継続 */
+    td.cur.cur-up { color: var(--pos); }
+    td.cur.cur-down { color: var(--neg); }
+    td.cur.blink { animation: cur-blink .5s ease-out; }
+    @keyframes cur-blink { 0% { opacity: .15; } 55% { opacity: 1; } }
     /* プラス=赤 / マイナス=青（赤緑色弱対応。前日比・前日比%・陽線率で使用） */
     td.up { color: var(--pos); font-weight: 600; }
     td.down { color: var(--neg); font-weight: 600; }
@@ -208,7 +208,8 @@
     const SESS_LABEL = { PRE: 'プレマーケット', REGULAR: 'レギュラー', AFTER: 'アフター', OVERNIGHT: 'オーバーナイト', CLOSED: 'クローズ' };
     const tbody = document.getElementById('tbody');
     const prevRank = {};   // code -> 前回順位
-    const prevCur = {};    // code -> 前回の現在値（変化方向でフラッシュ）
+    const prevCur = {};    // code -> 前回の現在値（変化方向でブリンク）
+    const curDir = {};     // code -> 直近の変化方向 'up'/'down'（色を継続）
 
     function fmt(n, d = 2) {
       if (n === null || n === undefined || isNaN(n)) return '-';
@@ -332,11 +333,21 @@
         const before = prevRank[r.code];
         if (before !== undefined && before !== r.rank) tr.classList.add('flash');
         tr.innerHTML = rowHtml(r);
-        // 現在値の変化方向でフラッシュ（上昇=赤 / 下落=青）
+        // 現在値の変化: 上昇=赤/下落=青にブリンクし、以後その色を継続
         const pc = prevCur[r.code];
+        let d = curDir[r.code];
+        let changed = false;
         if (pc !== undefined && r.cur !== pc) {
+          d = r.cur > pc ? 'up' : 'down';
+          curDir[r.code] = d;
+          changed = true;
+        }
+        if (d) {
           const curTd = tr.querySelector('td.cur');
-          if (curTd) curTd.classList.add(r.cur > pc ? 'up-tick' : 'down-tick');
+          if (curTd) {
+            curTd.classList.add(d === 'up' ? 'cur-up' : 'cur-down');
+            if (changed) curTd.classList.add('blink');
+          }
         }
         prevCur[r.code] = r.cur;
         frag.appendChild(tr);
