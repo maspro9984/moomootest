@@ -110,6 +110,34 @@
     footer { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
     .muted { color: var(--muted); }
     #mock-note { color: #fcd34d; }
+
+    /* チャート モーダル（ポップアップ） */
+    td.links a.chart-open { cursor: pointer; }
+    .chart-modal {
+      position: fixed; inset: 0; z-index: 1000;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(2, 6, 23, .78); backdrop-filter: blur(2px);
+      animation: modalIn .12s ease-out;
+    }
+    .chart-modal[hidden] { display: none; }
+    @keyframes modalIn { from { opacity: 0; } to { opacity: 1; } }
+    .chart-box {
+      position: relative; width: min(92vw, 1100px); height: min(82vh, 720px);
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,.55);
+    }
+    .chart-box .chart-head {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 8px 12px; font-size: 13px; color: var(--text);
+      background: var(--panel2); border-bottom: 1px solid var(--border);
+    }
+    .chart-box .chart-head .sym { font-family: monospace; color: var(--accent); }
+    .chart-box .chart-close {
+      border: none; background: transparent; color: var(--muted);
+      font-size: 20px; line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+    }
+    .chart-box .chart-close:hover { color: var(--text); background: var(--border); }
+    .chart-box iframe { display: block; width: 100%; height: calc(100% - 37px); border: 0; }
   </style>
 </head>
 <body>
@@ -151,6 +179,17 @@
     </table>
   </div>
 
+  <div id="chart-modal" class="chart-modal" hidden>
+    <div class="chart-box" id="chart-box">
+      <div class="chart-head">
+        <span class="sym" id="chart-sym"></span>
+        <button class="chart-close" id="chart-close" title="閉じる (Esc)">✕</button>
+      </div>
+      <iframe id="chart-frame" title="TradingView chart"
+              allow="clipboard-write" referrerpolicy="no-referrer-when-downgrade"></iframe>
+    </div>
+  </div>
+
   <footer>
     <span id="meta"></span>
     <span id="mock-note"></span><br>
@@ -186,17 +225,23 @@
       return '#3b82f6';
     }
 
-    // コード(例 US.AAPL / JP.9984)から 日本のYahoo Finance のチャート・企業情報リンクを生成
-    // US銘柄はティッカー直、JPは <code>.T、HKは <code>.HK。
+    // コード(例 US.AAPL / JP.9984)から チャート(TradingView)・企業情報(Yahoo)リンクを生成。
+    // チャート: US はティッカー直（取引所はTV自動解決）、JPは TSE:、HKは HKEX:。
+    // 企業情報: JPは <code>.T、HKは <code>.HK、US はティッカー直。
     function links(code) {
       const parts = String(code).split('.');
       const mkt = parts[0], sym = parts[1] || code;
+      let tvSym;
+      if (mkt === 'JP') tvSym = `TSE:${sym}`;
+      else if (mkt === 'HK') tvSym = `HKEX:${sym.replace(/^0+/, '') || sym}`;
+      else tvSym = sym;  // US など
+      const tv = `https://jp.tradingview.com/chart/?symbol=${encodeURIComponent(tvSym)}`;
       let q;
       if (mkt === 'JP') q = sym + '.T';
       else if (mkt === 'HK') q = sym.padStart(4, '0') + '.HK';
-      else q = sym;  // US など: ティッカー直
+      else q = sym;
       const base = `https://finance.yahoo.co.jp/quote/${q}`;
-      return `<a href="${base}/chart" target="_blank" rel="noopener">📈チャート</a>`
+      return `<a href="${tv}" class="chart-open" data-sym="${tvSym}" target="_blank" rel="noopener">📈チャート</a>`
            + `<a href="${base}/profile" target="_blank" rel="noopener">📄企業情報</a>`;
     }
 
@@ -298,6 +343,40 @@
     }
     poll();
     setInterval(poll, 500);
+
+    // ---- チャート モーダル ---- //
+    const chartModal = document.getElementById('chart-modal');
+    const chartFrame = document.getElementById('chart-frame');
+    const chartSym = document.getElementById('chart-sym');
+
+    function openChart(sym) {
+      const enc = encodeURIComponent(sym);
+      chartSym.textContent = sym;
+      chartFrame.src = `https://s.tradingview.com/widgetembed/?symbol=${enc}`
+        + `&interval=D&theme=light&style=1&locale=ja&timezone=Asia/Tokyo`
+        + `&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1`;
+      chartModal.hidden = false;
+    }
+    function closeChart() {
+      chartModal.hidden = true;
+      chartFrame.src = 'about:blank';  // 読み込み停止
+    }
+
+    // 📈チャート ボタン（動的行のためイベント委譲）
+    tbody.addEventListener('click', (e) => {
+      const a = e.target.closest('a.chart-open');
+      if (!a) return;
+      e.preventDefault();
+      openChart(a.dataset.sym);
+    });
+    // 背景クリック（チャート枠の外）で閉じる
+    chartModal.addEventListener('click', (e) => {
+      if (e.target === chartModal) closeChart();
+    });
+    document.getElementById('chart-close').addEventListener('click', closeChart);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && !chartModal.hidden) closeChart();
+    });
   </script>
 </body>
 </html>

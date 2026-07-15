@@ -10,21 +10,30 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Optional
 
 
-def _yahoo_url(code: str) -> str:
-    """コード(例 US.AAPL / JP.9984)から日本のYahoo FinanceチャートURLを作る。"""
+def _tv_symbol(code: str) -> str:
+    """コード(例 US.AAPL / JP.9984 / HK.0700)を TradingView のシンボル表記にする。
+
+    US は取引所(NASDAQ/NYSE)がデータに無いのでシンボル直指定（TradingViewが自動解決）。
+    JP は東証(TSE:)、HK は HKEX: を付ける。
+    """
     parts = str(code).split(".")
     mkt, sym = parts[0], parts[-1]
     if mkt == "JP":
-        q = sym + ".T"
-    elif mkt == "HK":
-        q = sym.zfill(4) + ".HK"
-    else:
-        q = sym
-    return f"https://finance.yahoo.co.jp/quote/{q}/chart"
+        return f"TSE:{sym}"
+    if mkt == "HK":
+        return f"HKEX:{sym.lstrip('0') or sym}"
+    return sym  # US など
+
+
+def _chart_url(code: str) -> str:
+    """コードから TradingView のチャートURLを作る。"""
+    sym = urllib.parse.quote(_tv_symbol(code))
+    return f"https://jp.tradingview.com/chart/?symbol={sym}"
 
 
 class DiscordNotifier:
@@ -69,7 +78,7 @@ class DiscordNotifier:
 
         return {
             "title": f"🚀 上場来高値 更新: {name} ({code})",
-            "url": _yahoo_url(code),
+            "url": _chart_url(code),
             "color": 0xF59E0B,  # amber（アプリのATH更新ハイライトに合わせる）
             "fields": fields,
         }
