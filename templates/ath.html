@@ -112,6 +112,11 @@
       font-size: 10px; font-weight: 800; letter-spacing: .5px; color: #fff;
       background: var(--newath); padding: 2px 6px; border-radius: 4px; margin-left: 6px;
     }
+    /* 前日ATH更新（前営業日のレギュラー高値がATHに到達）: 黄色背景 */
+    .tag-prev {
+      font-size: 10px; font-weight: 800; letter-spacing: .5px; color: #1a1a1a;
+      background: #fde047; padding: 2px 6px; border-radius: 4px;
+    }
     footer { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
     .muted { color: var(--muted); }
     #mock-note { color: #fcd34d; }
@@ -167,6 +172,7 @@
           <th>前日比</th>
           <th>前日比%</th>
           <th>上場来高値</th>
+          <th title="前営業日のレギュラー高値がATHに到達＝前日ATH更新">前日NEW</th>
           <th>ATH比</th>
           <th>当日高値</th>
           <th title="(プレ現在値 - プレ始値) / プレ始値">陽線率<br>プレ</th>
@@ -179,7 +185,7 @@
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="18" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+        <tr><td colspan="19" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
       </tbody>
     </table>
   </div>
@@ -284,6 +290,7 @@
         ${chgCell(r.change, false)}
         ${chgCell(r.change_rate, true)}
         <td class="muted">$${fmt(r.ath)}</td>
+        <td class="l">${r.prev_new ? '<span class="tag-prev">NEW</span>' : ''}</td>
         <td class="pct-cell">
           <div class="pct-wrap">
             <span class="bar"><span style="width:${w}%;background:${barColor(r.pct)}"></span></span>
@@ -322,7 +329,7 @@
 
       const rows = data.rows || [];
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="18" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="19" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
         return;
       }
       // 既存行を再利用しつつ、順位変動でフラッシュ

@@ -223,6 +223,7 @@ class AthMonitor:
                         "market_cap_rank": s.get("market_cap_rank"),
                         "is_new_ath": is_new_ath,
                         "ath_updated": bool(s.get("ath_updated")),
+                        "prev_new": s.get("prev_new"),
                         "update_time": s.get("update_time", ""),
                     }
                 )
@@ -445,10 +446,15 @@ class AthMonitor:
                 return None
             for _, r in data.iterrows():
                 code = r["code"]
+                ath0 = _f(r.get("highest_history_price"))
+                high0 = _f(r.get("high_price"))
                 state[code] = {
                     "name": r.get("name", "") or "",
                     "industry": "",
-                    "ath": _f(r.get("highest_history_price")),
+                    "ath": ath0,
+                    # 前日ATH更新: 直近レギュラー高値(起動/引け時のsnapshot高値)がATHに到達。
+                    # 起動が寄り前なら前営業日、引け後の入替時はその日の結果＝翌日の「前日」。
+                    "prev_new": bool(ath0 and high0 and high0 >= ath0 * 0.9999),
                     "ath_updated": False,   # 当日高値が基準ATHを超えたら True（大引けまで保持）
                     "prev_close": _f(r.get("prev_close_price")),
                     "market_cap": _f(r.get("total_market_val")),
