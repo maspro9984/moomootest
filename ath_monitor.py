@@ -397,6 +397,18 @@ class AthMonitor:
                     continue
                 # 最新の取引日のみを対象にする（分足は時刻昇順）
                 latest = max(str(t)[:10] for t in kl["time_key"])
+                # 当日(米国東部日付)の分足でなければ陽線率は出さない。
+                # （引け後〜翌寄り前は履歴に前営業日しか無く、前日値を今日として
+                #   誤表示してしまうのを防ぐ）
+                if latest != _et_date():
+                    with self._lock:
+                        s = self._state.get(code)
+                        if s is not None:
+                            s["pre_open"] = 0.0
+                            s["reg_open"] = 0.0
+                            s["day_open"] = 0.0
+                    self._stop.wait(0.3)
+                    continue
                 pre_open = None
                 reg_open = None
                 day_open = None
