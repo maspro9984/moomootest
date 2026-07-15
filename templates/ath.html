@@ -178,14 +178,16 @@
           <th title="(プレ現在値 - プレ始値) / プレ始値">陽線率<br>プレ</th>
           <th title="(レギュラー現在値 - レギュラー始値) / レギュラー始値">陽線率<br>レギュラー</th>
           <th title="(現在値 - 当日始値[プレ始値]) / 当日始値">陽線率<br>トータル</th>
-          <th>売買代金順位</th>
-          <th>売買代金</th>
+          <th title="前営業日の売買代金による順位（ユニバース=上位100の基準）">売買代金順位<br>(前日)</th>
+          <th title="今日のプレマーケットの売買代金">代金<br>プレ</th>
+          <th title="今日のレギュラーの売買代金">代金<br>レギュラー</th>
+          <th title="今日のアフターの売買代金">代金<br>アフター</th>
           <th>時価総額順位</th>
           <th>時価総額</th>
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="19" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+        <tr><td colspan="21" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
       </tbody>
     </table>
   </div>
@@ -302,7 +304,9 @@
         ${yosenCell(r.yosen_reg)}
         ${yosenCell(r.yosen_total)}
         <td class="muted">${r.turnover_rank ?? '-'}</td>
-        <td class="muted">${money(r.turnover)}</td>
+        <td class="muted">${r.turnover_pre ? money(r.turnover_pre) : '-'}</td>
+        <td class="muted">${r.turnover_reg ? money(r.turnover_reg) : '-'}</td>
+        <td class="muted">${r.turnover_after ? money(r.turnover_after) : '-'}</td>
         <td class="muted">${r.market_cap_rank ?? '-'}</td>
         <td class="muted">${money(r.market_cap)}</td>
       `;
@@ -329,7 +333,7 @@
 
       const rows = data.rows || [];
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="19" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="21" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
         return;
       }
       // 既存行を再利用しつつ、順位変動でフラッシュ

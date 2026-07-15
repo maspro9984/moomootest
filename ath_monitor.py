@@ -219,6 +219,9 @@ class AthMonitor:
                         "yosen_total": yosen_total,
                         "turnover": s.get("turnover"),
                         "turnover_rank": s.get("turnover_rank"),
+                        "turnover_pre": s.get("turnover_pre"),
+                        "turnover_reg": s.get("turnover_reg"),
+                        "turnover_after": s.get("turnover_after"),
                         "market_cap": s.get("market_cap"),
                         "market_cap_rank": s.get("market_cap_rank"),
                         "is_new_ath": is_new_ath,
@@ -465,6 +468,10 @@ class AthMonitor:
                     "overnight": _f(r.get("overnight_price")),
                     "turnover": turnover_map.get(code),
                     "turnover_rank": turnover_rank_map.get(code),
+                    # セッション別の当日売買代金（realtimeで更新、日次リセット）
+                    "turnover_pre": 0.0,
+                    "turnover_reg": 0.0,
+                    "turnover_after": 0.0,
                     "update_time": str(r.get("update_time", "") or ""),
                 }
         # 時価総額順位を採番（ユニバース内を時価総額の降順で）
@@ -625,6 +632,9 @@ class AthMonitor:
                     # 起動直後の初回判定ではリセットしない（復元済みフラグを守る）
                     self._session_ready = True
                 elif old_bucket != new_bucket:
+                    if new_bucket == "PRE":
+                        # 新しい取引日のプレ開始: セッション別売買代金をリセット
+                        self._reset_session_turnover()
                     if new_bucket == "REGULAR":
                         # レギュラー開始＝新しい取引日: 当日高値とフラグをリセット
                         self._reset_daily(reset_high=True)
@@ -648,6 +658,15 @@ class AthMonitor:
         self._state_dirty = True   # リセット後の状態を保存（再起動で復活させない）
         label = "レギュラー開始" if reset_high else "取引終了(大引け)"
         print(f"[ath] {label}: ATH更新フラグをリセットしました")
+
+    def _reset_session_turnover(self) -> None:
+        """セッション別の当日売買代金を0にリセット（新しい取引日のプレ開始時）。"""
+        with self._lock:
+            for s in self._state.values():
+                s["turnover_pre"] = 0.0
+                s["turnover_reg"] = 0.0
+                s["turnover_after"] = 0.0
+        print("[ath] プレ開始: セッション別売買代金をリセットしました")
 
     # ---- ATH更新状態の永続化（同一取引日なら再起動で復元） ---------- #
     def _ath_state_path(self) -> str:
@@ -772,6 +791,21 @@ class AthMonitor:
                 v = _f(_rowget(row, key))
                 if v:
                     s[fld] = v
+            # セッション別の当日売買代金。既に終えたセッション分は取り込みつつ、
+            # まだ来ていないセッション（前日値が残る after 等）は取り込まない。
+            sess = self._session
+            if sess in ("PRE", "REGULAR", "AFTER"):
+                tp = _f(_rowget(row, "pre_turnover"))
+                if tp:
+                    s["turnover_pre"] = tp
+            if sess in ("REGULAR", "AFTER"):
+                tr = _f(_rowget(row, "turnover"))
+                if tr:
+                    s["turnover_reg"] = tr
+            if sess == "AFTER":
+                ta = _f(_rowget(row, "after_turnover"))
+                if ta:
+                    s["turnover_after"] = ta
             dt = f"{_rowget(row, 'data_date', '')} {_rowget(row, 'data_time', '')}".strip()
             if dt:
                 s["update_time"] = dt
@@ -798,6 +832,9 @@ class AthMonitor:
                     "ath": ath, "ath_updated": False,
                     "prev_close": round(last * random.uniform(0.97, 1.03), 2),
                     "market_cap": round(random.uniform(5e10, 4e12), 0),
+                    "turnover_pre": round(random.uniform(1e7, 5e8), 0),
+                    "turnover_reg": round(random.uniform(1e8, 5e9), 0),
+                    "turnover_after": round(random.uniform(1e6, 2e8), 0),
                     "reg_open": mock_open, "day_open": mock_open, "pre_open": 0.0,
                     "last": last, "high": last,
                     "pre": 0.0, "after": 0.0, "overnight": 0.0,
