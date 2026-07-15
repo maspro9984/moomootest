@@ -273,7 +273,7 @@
     function rowHtml(r) {
       const rankCls = r.rank <= 3 ? ' top' + r.rank : '';
       const w = Math.max(2, Math.min(100, r.pct));
-      const newTag = r.is_new_ath ? '<span class="tag-new">NEW</span>' : '';
+      const newTag = r.ath_updated ? '<span class="tag-new">NEW</span>' : '';
       return `
         <td class="l rank${rankCls}">${r.rank}</td>
         <td class="l code">${r.code}</td>
@@ -329,7 +329,7 @@
       const frag = document.createDocumentFragment();
       for (const r of rows) {
         const tr = document.createElement('tr');
-        if (r.is_new_ath) tr.className = 'newath';
+        if (r.ath_updated) tr.className = 'newath';
         const before = prevRank[r.code];
         if (before !== undefined && before !== r.rank) tr.classList.add('flash');
         tr.innerHTML = rowHtml(r);
