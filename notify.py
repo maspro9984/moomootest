@@ -83,9 +83,31 @@ class DiscordNotifier:
             "fields": fields,
         }
 
+    @staticmethod
+    def build_ath_content(ev: dict) -> str:
+        """embedが表示されない環境でも読める本文テキストを作る。"""
+        code = ev.get("code", "")
+        name = ev.get("name") or code
+        cur = ev.get("cur")
+        pct = ev.get("pct")
+        chg = ev.get("change_rate")
+        seg = []
+        if isinstance(cur, (int, float)):
+            seg.append(f"現在値 ${cur:,.2f}")
+        if isinstance(pct, (int, float)):
+            seg.append(f"ATH比 {pct:.2f}%")
+        if isinstance(chg, (int, float)):
+            seg.append(f"前日比 {'+' if chg > 0 else ''}{chg:.2f}%")
+        head = f"🚀 **{name} ({code})** 上場来高値を更新"
+        return head + ("　" + " / ".join(seg) if seg else "")
+
     # ---- 送信 ---- #
     def send_ath_update(self, ev: dict) -> None:
-        self._post({"embeds": [self.build_ath_embed(ev)]})
+        # content(本文) と embed(詳細) を両方送る。embedが展開されなくても本文で読める。
+        self._post({
+            "content": self.build_ath_content(ev),
+            "embeds": [self.build_ath_embed(ev)],
+        })
 
     def send_text(self, text: str) -> None:
         self._post({"content": text})
