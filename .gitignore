@@ -16,5 +16,7 @@ opend/
 universe_*.json
 ath_state_*.json
 
-# 通知Webhook等の秘密情報（環境変数ファイル）
+# 通知Webhook等の秘密情報（環境変数ファイル・Webhook URLファイル）
 .env
+discord_webhook.txt
+.discord_webhook

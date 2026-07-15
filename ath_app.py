@@ -81,8 +81,20 @@ def main():
     if _ft is not None:
         yosen_ktype = _ft.KLType.K_1M if args.yosen_tf == "1m" else _ft.KLType.K_5M
 
-    notifier = build_notifier(args.discord_webhook)
-    print("[ath] Discord通知:", "有効" if notifier else "無効（--discord-webhook か 環境変数 ATH_DISCORD_WEBHOOK を設定）")
+    # Webhook の優先順位: --discord-webhook > 環境変数 > discord_webhook.txt
+    webhook = args.discord_webhook
+    if not webhook:
+        for fn in ("discord_webhook.txt", ".discord_webhook"):
+            if os.path.exists(fn):
+                try:
+                    webhook = open(fn, encoding="utf-8").read().strip()
+                except Exception:
+                    webhook = None
+                if webhook:
+                    print(f"[ath] {fn} からWebhookを読み込みました")
+                    break
+    notifier = build_notifier(webhook)
+    print("[ath] Discord通知:", "有効" if notifier else "無効（discord_webhook.txt にURLを1行書くか --discord-webhook / 環境変数）")
 
     monitor = AthMonitor(
         market=args.market,
