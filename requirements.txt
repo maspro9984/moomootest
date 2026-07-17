@@ -6,3 +6,6 @@ moomoo-api>=9.0
 
 # Web サーバー
 Flask>=3.0.0
+
+# 日本株版(jp_app.py)がRSSPilotのdataapi(WebSocket)に接続するために使用します。
+websockets>=12.0

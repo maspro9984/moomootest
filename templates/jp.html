@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>日本株 ATH接近ランキング</title>
+  <style>
+    :root {
+      --bg: #0f172a; --panel: #1e293b; --panel2: #182235; --border: #334155;
+      --text: #e2e8f0; --muted: #94a3b8; --accent: #60a5fa;
+      --up: #22c55e; --newath: #a855f7;
+      /* 価格の増減（赤緑色弱対応: プラス=赤 / マイナス=青） */
+      --pos: #f04747; --neg: #3b82f6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; padding: 20px; background: var(--bg); color: var(--text);
+      font-family: -apple-system, "Segoe UI", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+    }
+    header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+    h1 { font-size: 19px; margin: 0; font-weight: 600; }
+    h1 .sub { color: var(--muted); font-weight: 400; font-size: 14px; margin-left: 8px; }
+    .status { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .navlink {
+      font-size: 13px; color: var(--accent); text-decoration: none; background: var(--panel2);
+      border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px; white-space: nowrap;
+    }
+    .navlink:hover { border-color: var(--accent); }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+      background: var(--panel); border: 1px solid var(--border); border-radius: 999px; padding: 6px 14px;
+    }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
+    .dot.live { background: var(--up); box-shadow: 0 0 8px var(--up); }
+    .dot.err { background: var(--pos); box-shadow: 0 0 8px var(--pos); }
+    .sess { font-size: 12px; padding: 4px 10px; border-radius: 6px; font-weight: 700; background: var(--panel2); border: 1px solid var(--border); }
+    .sess.MORNING, .sess.AFTERNOON { color: #86efac; }
+    .sess.LUNCH { color: #fcd34d; }
+    .sess.CLOSED { color: var(--muted); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; min-width: 900px; }
+    thead th {
+      position: sticky; top: 0; background: var(--panel); color: var(--muted); font-weight: 600;
+      text-align: right; padding: 11px 12px; border-bottom: 1px solid var(--border);
+      white-space: nowrap; font-size: 12px;
+    }
+    thead th.l, tbody td.l { text-align: left; }
+    tbody td { padding: 10px 12px; text-align: right; border-bottom: 1px solid #263349; font-variant-numeric: tabular-nums; white-space: nowrap; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: var(--panel2); }
+    tbody tr.flash { animation: flash .6s ease-out; }
+    @keyframes flash { from { background: #1d4ed855; } to { background: transparent; } }
+    tbody tr.newath { background: linear-gradient(90deg, #a855f733, transparent); }
+
+    .rank { color: var(--muted); font-weight: 700; width: 40px; }
+    .rank.top1 { color: #fde047; } .rank.top2 { color: #e2e8f0; } .rank.top3 { color: #fdba74; }
+    .code { font-family: monospace; color: var(--accent); }
+    .name { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+    td.name.ath-hit { color: #fde047; font-weight: 800; }
+    .ath-badge { font-size: 10px; font-weight: 800; color: #1a1a1a; background: #fde047; padding: 1px 6px; border-radius: 4px; margin-left: 6px; vertical-align: middle; }
+    .industry { color: #a5b4fc; font-size: 12px; max-width: 130px; overflow: hidden; text-overflow: ellipsis; }
+    td.links { white-space: nowrap; }
+    td.links a {
+      display: inline-block; font-size: 11px; text-decoration: none; color: var(--text);
+      background: var(--panel2); border: 1px solid var(--border); border-radius: 5px; padding: 3px 7px; margin-right: 4px;
+    }
+    td.links a:hover { border-color: var(--accent); color: var(--accent); }
+    .cur { font-weight: 700; }
+    /* 現在値の変化: 上昇=赤 / 下落=青。変化時にブリンクし以後その色を継続 */
+    td.cur.cur-up { color: var(--pos); }
+    td.cur.cur-down { color: var(--neg); }
+    td.cur.blink { animation: cur-blink .5s ease-out; }
+    @keyframes cur-blink { 0% { opacity: .15; } 55% { opacity: 1; } }
+    /* プラス=赤 / マイナス=青 */
+    td.up { color: var(--pos); font-weight: 600; }
+    td.down { color: var(--neg); font-weight: 600; }
+    td.flat { color: var(--muted); }
+
+    .pct-cell { min-width: 150px; }
+    .pct-wrap { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+    .pct-num { font-weight: 700; width: 60px; text-align: right; }
+    .bar { flex: 1; height: 8px; background: #0b1424; border-radius: 999px; overflow: hidden; max-width: 110px; }
+    .bar > span { display: block; height: 100%; border-radius: 999px; }
+    .tag-new { font-size: 10px; font-weight: 800; letter-spacing: .5px; color: #fff; background: var(--newath); padding: 2px 6px; border-radius: 4px; margin-left: 6px; }
+    footer { margin-top: 16px; font-size: 12px; color: var(--muted); line-height: 1.7; }
+    .muted { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    {% if view == "turnover" %}
+    <h1>💰 前日売買代金 上位ランキング<span class="sub">日本株 上位{% if show %}{{ show }}{% else %}{{ top }}{% endif %}（静的）</span></h1>
+    <div class="status"><a class="navlink" href="/">← ATH接近ランキングへ戻る</a></div>
+    {% else %}
+    <h1>🎌 日本株 上場来高値(ATH)接近ランキング<span class="sub">前日売買代金上位{{ top }}{% if show %} → ATH比上位{{ show }}{% endif %}</span></h1>
+    <div class="status">
+      <a class="navlink" href="/turnover">💰 前日売買代金ランキング →</a>
+      <span class="sess CLOSED" id="sess">—</span>
+      <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span></span>
+    </div>
+    {% endif %}
+  </header>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th class="l">#</th>
+          <th class="l">コード</th>
+          <th class="l">銘柄名</th>
+          <th class="l">業種</th>
+          <th class="l">リンク</th>
+          <th>現在値</th>
+          <th>前日比</th>
+          <th>前日比%</th>
+          <th>上場来高値</th>
+          <th>ATH比</th>
+          <th>当日高値</th>
+          <th title="(現在値-始値)/始値。RSSPilot算出">陽線率</th>
+          <th title="後場の陽線率。RSSPilot算出">陽線率<br>後場</th>
+          <th title="前営業日の売買代金による順位（ユニバースの基準）">売買代金順位<br>(前日)</th>
+          <th title="当日の売買代金（リアルタイム）">売買代金</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr><td colspan="15" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <footer>
+    <span id="meta"></span><br>
+    <span class="muted">
+      ATH比 = 現在値 ÷ max(上場来高値, 当日高値)。<span class="tag-new">NEW</span> はザラ場中にATHを更新した銘柄（大引けでリセット）。
+      上場来高値は RSS値 と web値(分割調整済) の安い方を採用。データ源: RSSPilot。
+    </span>
+  </footer>
+
+  <script>
+    const SESS_LABEL = { MORNING:'前場', LUNCH:'昼休み', AFTERNOON:'後場', CLOSED:'クローズ' };
+    const tbody = document.getElementById('tbody');
+    const prevRank = {}, prevCur = {}, curDir = {};
+
+    function fmt(n, d = 2) {
+      if (n === null || n === undefined || isNaN(n)) return '-';
+      return Number(n).toLocaleString('ja-JP', { minimumFractionDigits: d, maximumFractionDigits: d });
+    }
+    function money(v) {
+      if (v === null || v === undefined || isNaN(v)) return '-';
+      v = Number(v);
+      if (v >= 1e12) return (v / 1e12).toFixed(2) + ' 兆';
+      if (v >= 1e8) return (v / 1e8).toFixed(1) + ' 億';
+      if (v >= 1e4) return (v / 1e4).toFixed(0) + ' 万';
+      return Math.round(v).toLocaleString('ja-JP');
+    }
+    function barColor(pct) {
+      if (pct >= 99) return '#a855f7';
+      if (pct >= 90) return '#f04747';
+      if (pct >= 75) return '#f59e0b';
+      if (pct >= 50) return '#eab308';
+      return '#3b82f6';
+    }
+    function chgCell(v, pct) {
+      if (v === null || v === undefined || isNaN(v)) return '<td class="muted">-</td>';
+      const cls = v > 0 ? 'up' : v < 0 ? 'down' : 'flat';
+      return `<td class="${cls}">${v > 0 ? '+' : ''}${fmt(v, 2)}${pct ? '%' : ''}</td>`;
+    }
+    // 日本株コード → Yahoo Finance (9984.T)
+    function links(code) {
+      const base = `https://finance.yahoo.co.jp/quote/${code}.T`;
+      return `<a href="${base}/chart" target="_blank" rel="noopener">📈チャート</a>`
+           + `<a href="${base}/profile" target="_blank" rel="noopener">📄企業情報</a>`;
+    }
+
+    function rowHtml(r) {
+      const rankCls = r.rank <= 3 ? ' top' + r.rank : '';
+      const w = Math.max(2, Math.min(100, r.pct));
+      const newTag = r.ath_updated ? '<span class="tag-new">NEW</span>' : '';
+      return `
+        <td class="l rank${rankCls}">${r.rank}</td>
+        <td class="l code">${r.code}</td>
+        <td class="l name${r.ath_updated ? ' ath-hit' : ''}" title="${r.name || ''}">${r.name || ''}${r.ath_updated ? '<span class="ath-badge">ATH更新</span>' : ''}</td>
+        <td class="l industry" title="${r.industry || ''}">${r.industry || '-'}</td>
+        <td class="l links">${links(r.code)}</td>
+        <td class="cur">${fmt(r.cur, 1)}</td>
+        ${chgCell(r.change, false)}
+        ${chgCell(r.change_rate, true)}
+        <td class="muted">${fmt(r.ath, 1)}</td>
+        <td class="pct-cell">
+          <div class="pct-wrap">
+            <span class="bar"><span style="width:${w}%;background:${barColor(r.pct)}"></span></span>
+            <span class="pct-num">${fmt(r.pct, 2)}%${newTag}</span>
+          </div>
+        </td>
+        <td class="muted">${fmt(r.high, 1)}</td>
+        ${chgCell(r.yosen, true)}
+        ${chgCell(r.yosen_pm, true)}
+        <td class="muted">${r.turnover_rank ?? '-'}</td>
+        <td class="muted">${money(r.turnover)}</td>
+      `;
+    }
+
+    function render(data) {
+      const dot = document.getElementById('dot');
+      const conn = document.getElementById('conn');
+      if (data.mode === 'realtime') {
+        if (dot) dot.className = 'dot live';
+        if (conn) conn.textContent = '接続済み';
+      } else if (data.mode === 'error') {
+        if (dot) dot.className = 'dot err';
+        if (conn) conn.textContent = 'RSSPilot接続エラー';
+      }
+      const sess = document.getElementById('sess');
+      if (sess) {
+        const sk = data.session || 'CLOSED';
+        sess.className = 'sess ' + sk;
+        sess.textContent = SESS_LABEL[sk] || sk;
+      }
+      const meta = document.getElementById('meta');
+      if (meta) meta.textContent =
+        `前日売買代金上位${data.universe_n}銘柄${VIEW === 'turnover' ? '（静的）' : 'を監視中'}。表示 ${(data.rows||[]).length} 件。`;
+
+      const rows = data.rows || [];
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="15" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        return;
+      }
+      const frag = document.createDocumentFragment();
+      for (const r of rows) {
+        const tr = document.createElement('tr');
+        if (r.ath_updated) tr.className = 'newath';
+        const before = prevRank[r.code];
+        if (before !== undefined && before !== r.rank) tr.classList.add('flash');
+        tr.innerHTML = rowHtml(r);
+        const pc = prevCur[r.code];
+        let d = curDir[r.code], changed = false;
+        if (pc !== undefined && r.cur !== pc) { d = r.cur > pc ? 'up' : 'down'; curDir[r.code] = d; changed = true; }
+        if (d) {
+          const curTd = tr.querySelector('td.cur');
+          if (curTd) { curTd.classList.add(d === 'up' ? 'cur-up' : 'cur-down'); if (changed) curTd.classList.add('blink'); }
+        }
+        prevCur[r.code] = r.cur;
+        frag.appendChild(tr);
+        prevRank[r.code] = r.rank;
+      }
+      tbody.replaceChildren(frag);
+    }
+
+    const VIEW = "{{ view|default('ath') }}";
+    const API = VIEW === 'turnover' ? '/api/ranking?sort=turnover' : '/api/ranking';
+    async function poll() {
+      try { render(await (await fetch(API, { cache: 'no-store' })).json()); }
+      catch (e) {
+        const conn = document.getElementById('conn'); if (conn) conn.textContent = '再接続中...';
+        const dot = document.getElementById('dot'); if (dot) dot.className = 'dot';
+      }
+    }
+    poll();
+    if (VIEW !== 'turnover') setInterval(poll, 500);
+  </script>
+</body>
+</html>
