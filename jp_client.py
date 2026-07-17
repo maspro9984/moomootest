@@ -6,6 +6,10 @@ RSSPilotSv.js の DataClient として接続し、日本株のデータを取得
 プロトコルは JSON の request/yourRequest 形式。Subscribe すると NotifyData
 (または intervalMs>0 で NotifyDataBatch) が push されてくる。
 
+重要: サーバーは 60秒 ping が無いセッションを切断する
+(RSSPilotSv.js: LastPing から 60秒超で ws.close())。そのため定期的に
+{request:"ping"} を送る必要がある。切断された場合は自動で再接続する。
+
 このモジュールは受信をバックグラウンドスレッドで回し、値の更新をコールバックで
 通知する（moomoo版の MoomooQuoteClient と同じ思想）。
 """
@@ -22,6 +26,10 @@ from websockets.sync.client import connect
 # RSSPilotSv.js の ClientType.DataClient
 CLIENT_TYPE_DATA = 4
 SUBPROTOCOL = "echo-protocol"
+# サーバーは60秒ping無しで切断するので、余裕をみて30秒間隔で送る
+PING_INTERVAL_SEC = 30
+# 切断時の再接続待ち（秒）
+RECONNECT_WAIT_SEC = 5
 
 
 class RssPilotClient:
@@ -44,6 +52,8 @@ class RssPilotClient:
         self._waiters_lock = threading.Lock()
         # push コールバック: (code, element_name, value) -> None
         self.on_data: Optional[Callable[[str, str, object], None]] = None
+        # 再接続後に呼ばれる。購読はセッション単位なので呼び側で貼り直す。
+        self.on_reconnect: Optional[Callable[[], None]] = None
         self.connected = threading.Event()
         self.last_error = ""
 
@@ -71,8 +81,18 @@ class RssPilotClient:
             print(f"[jp] {self.last_error}")
             return False
         self.connected.set()
+        # サーバーは60秒ping無しでセッションを切るので、定期的にpingを打つ
+        threading.Thread(target=self._ping_loop, daemon=True).start()
         print(f"[jp] RSSPilot に接続しました ({self.url} sid={res.get('sid')})")
         return True
+
+    def _ping_loop(self) -> None:
+        while not self._stop.is_set():
+            self._stop.wait(PING_INTERVAL_SEC)
+            if self._stop.is_set():
+                break
+            if self.connected.is_set():
+                self.send({"request": "ping"})
 
     def stop(self) -> None:
         self._stop.set()
@@ -90,16 +110,70 @@ class RssPilotClient:
             except TimeoutError:
                 continue
             except Exception as exc:
-                if not self._stop.is_set():
-                    self.last_error = f"受信エラー: {exc}"
-                    print(f"[jp] {self.last_error}")
-                    self.connected.clear()
-                break
+                if self._stop.is_set():
+                    break
+                self.connected.clear()
+                self.last_error = f"切断されました: {exc}"
+                print(f"[jp] {self.last_error}")
+                if not self._reconnect():
+                    break
+                continue
             try:
                 msg = json.loads(raw)
             except Exception:
                 continue
             self._dispatch(msg)
+
+    # ------------------------------------------------------------------ #
+    def _reconnect(self) -> bool:
+        """切断からの復帰。成功したら True（受信ループを継続できる）。"""
+        while not self._stop.is_set():
+            self._stop.wait(RECONNECT_WAIT_SEC)
+            if self._stop.is_set():
+                return False
+            print("[jp] 再接続を試みます...")
+            try:
+                self._ws = connect(self.url, subprotocols=[SUBPROTOCOL], open_timeout=10)
+            except Exception as exc:
+                print(f"[jp] 再接続失敗: {exc}")
+                continue
+            if not self._login_inline():
+                print("[jp] 再ログインに失敗しました")
+                continue
+            self.connected.set()
+            print("[jp] 再接続しました")
+            # 購読の貼り直しは呼び側に任せる。request() を使うので別スレッドで
+            # 動かす（この受信ループが応答を読む必要があるため）。
+            if self.on_reconnect:
+                threading.Thread(target=self._safe_on_reconnect, daemon=True).start()
+            return True
+        return False
+
+    def _login_inline(self) -> bool:
+        """受信ループ内から呼ぶログイン。request() は使えないので直接読む。"""
+        if not self.send({"request": "Login", "clientType": CLIENT_TYPE_DATA, "tag": self.tag}):
+            return False
+        deadline = time.time() + 10
+        while time.time() < deadline and not self._stop.is_set():
+            try:
+                raw = self._ws.recv(timeout=5)
+            except TimeoutError:
+                continue
+            except Exception:
+                return False
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                continue
+            if msg.get("request") == "LoginResult":
+                return bool(msg.get("result"))
+        return False
+
+    def _safe_on_reconnect(self) -> None:
+        try:
+            self.on_reconnect()
+        except Exception as exc:
+            print(f"[jp] 再接続後の処理でエラー: {exc}")
 
     def _dispatch(self, msg: dict) -> None:
         req = msg.get("request")

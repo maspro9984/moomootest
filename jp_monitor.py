@@ -130,6 +130,8 @@ class JpAthMonitor:
             return False
         self._client = cli
         cli.on_data = self._on_data
+        # 購読はセッション単位なので、再接続時に貼り直す
+        cli.on_reconnect = self._resubscribe
 
         # 1) ユニバース: 前日売買代金ランキング
         rank = cli.get_ranking("volume", self.top)
@@ -177,6 +179,30 @@ class JpAthMonitor:
         self._refresh_session(initial=True)
         print(f"[jp] リアルタイム監視を開始: 前日売買代金上位{len(codes)}銘柄")
         return True
+
+    def _resubscribe(self) -> None:
+        """再接続後の復帰。購読を貼り直し、取りこぼした分をスナップショットで補正。"""
+        cli, codes = self._client, list(self._codes)
+        if cli is None or not codes:
+            return
+        if not cli.subscribe(codes, SUBSCRIBE_ELEMENTS, self.interval_ms):
+            print("[jp] 再購読に失敗しました")
+            return
+        snap = cli.get_snapshot(codes, SNAPSHOT_ELEMENTS)
+        with self._lock:
+            for code, v in snap.items():
+                s = self._state.get(code)
+                if s is None:
+                    continue
+                s["last"] = _f(v.get("現在値")) or s.get("last")
+                s["prev_close"] = _f(v.get("前日終値")) or s.get("prev_close")
+                s["high"] = max(s.get("high") or 0.0, _f(v.get("高値")))
+                s["turnover"] = _f(v.get("売買代金")) * TURNOVER_UNIT or s.get("turnover")
+                if v.get("陽線率") is not None:
+                    s["yosen"] = v.get("陽線率")
+                if v.get("後場陽線率") is not None:
+                    s["yosen_pm"] = v.get("後場陽線率")
+        print(f"[jp] 再購読しました（{len(codes)}銘柄）")
 
     # ------------------------------------------------------------------ #
     def _on_data(self, code: str, element: str, value) -> None:
