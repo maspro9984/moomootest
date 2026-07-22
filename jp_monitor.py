@@ -18,6 +18,7 @@ ATHの扱い:
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 from datetime import datetime
@@ -56,10 +57,16 @@ def jp_session(now: Optional[datetime] = None) -> str:
 
 
 def _f(v) -> float:
+    """数値化。None / 変換不可 / NaN・Inf はすべて 0.0 にする。
+
+    NaN は jsonify が JSON 規格外の `NaN` として出力してしまい、
+    ブラウザ側の res.json() が例外になって画面が止まるため通さない。
+    """
     try:
-        return float(v) if v is not None else 0.0
+        f = float(v) if v is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
+    return f if math.isfinite(f) else 0.0
 
 
 def pick_ath(rss_ath, web_ath) -> float:
