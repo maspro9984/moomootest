@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ATH接近ランキング｜{{ market }}</title>
+  <title>{% if view == "turnover" %}前日売買代金ランキング{% elif view == "turnover_today" %}当日売買代金ランキング{% else %}ATH接近ランキング{% endif %}｜{{ market }}</title>
   <style>
     :root {
       --bg: #0f172a;
@@ -162,11 +162,21 @@
     <h1>💰 前日売買代金 上位ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{% if show %}{{ show }}{% else %}{{ top }}{% endif %}（静的）</span></h1>
     <div class="status">
       <a class="navlink" href="/">← ATH接近ランキングへ戻る</a>
+      <a class="navlink" href="/turnover-today">🔥 当日売買代金ランキング →</a>
+    </div>
+    {% elif view == "turnover_today" %}
+    <h1>🔥 当日売買代金 上位ランキング<span class="sub" id="sub">{{ market }} 監視対象=前日売買代金上位{{ top }}（リアルタイム）</span></h1>
+    <div class="status">
+      <a class="navlink" href="/">← ATH接近ランキングへ戻る</a>
+      <a class="navlink" href="/turnover">💰 前日売買代金ランキング →</a>
+      <span class="sess CLOSED" id="sess">—</span>
+      <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span><span class="badge" id="mode"></span></span>
     </div>
     {% else %}
     <h1>🎯 上場来高値(ATH)接近ランキング<span class="sub" id="sub">{{ market }} 売買代金上位{{ top }}{% if show %} → ATH比上位{{ show }}{% endif %}</span></h1>
     <div class="status">
       <a class="navlink" href="/turnover">💰 前日売買代金ランキング →</a>
+      <a class="navlink" href="/turnover-today">🔥 当日売買代金ランキング →</a>
       <span class="sess CLOSED" id="sess">—</span>
       <span class="pill"><span class="dot" id="dot"></span><span id="conn">接続中...</span><span class="badge" id="mode"></span></span>
     </div>
@@ -196,12 +206,13 @@
           <th title="今日のプレマーケットの売買代金">代金<br>プレ</th>
           <th title="今日のレギュラーの売買代金">代金<br>レギュラー</th>
           <th title="今日のアフターの売買代金">代金<br>アフター</th>
+          <th title="プレ+レギュラー+アフターの合計（当日）">代金<br>当日合計</th>
           <th>時価総額順位</th>
           <th>時価総額</th>
         </tr>
       </thead>
       <tbody id="tbody">
-        <tr><td colspan="21" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
+        <tr><td colspan="22" class="muted" style="text-align:center;padding:28px">読み込み中…</td></tr>
       </tbody>
     </table>
   </div>
@@ -321,6 +332,7 @@
         <td class="muted">${r.turnover_pre ? money(r.turnover_pre) : '-'}</td>
         <td class="muted">${r.turnover_reg ? money(r.turnover_reg) : '-'}</td>
         <td class="muted">${r.turnover_after ? money(r.turnover_after) : '-'}</td>
+        <td class="muted">${r.turnover_today ? money(r.turnover_today) : '-'}</td>
         <td class="muted">${r.market_cap_rank ?? '-'}</td>
         <td class="muted">${money(r.market_cap)}</td>
       `;
@@ -351,11 +363,11 @@
       }
       const meta = document.getElementById('meta');
       if (meta) meta.textContent =
-        `${data.market} 売買代金上位${data.universe_n}銘柄${VIEW === 'turnover' ? '（前日基準・静的）' : 'を監視中'}。表示 ${data.rows.length} 件。`;
+        `${data.market} 売買代金上位${data.universe_n}銘柄${VIEW === 'turnover' ? '（前日基準・静的）' : VIEW === 'turnover_today' ? '（当日売買代金順・リアルタイム）' : 'を監視中'}。表示 ${data.rows.length} 件。`;
 
       const rows = data.rows || [];
       if (!rows.length) {
-        tbody.innerHTML = '<tr><td colspan="21" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="22" class="muted" style="text-align:center;padding:28px">データ取得待ち…</td></tr>';
         return;
       }
       // 既存行を再利用しつつ、順位変動でフラッシュ
@@ -390,7 +402,9 @@
     }
 
     const VIEW = "{{ view|default('ath') }}";
-    const API = VIEW === 'turnover' ? '/api/ranking?sort=turnover' : '/api/ranking';
+    const API = VIEW === 'turnover' ? '/api/ranking?sort=turnover'
+              : VIEW === 'turnover_today' ? '/api/ranking?sort=turnover_today'
+              : '/api/ranking';
 
     async function poll() {
       try {

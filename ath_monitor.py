@@ -184,6 +184,7 @@ class AthMonitor:
 
         sort="pct"（既定）: ATH接近率の降順。
         sort="turnover": 前日売買代金の順位（昇順）。
+        sort="turnover_today": 当日売買代金（プレ+レギュラー+アフター合計）の降順。
         いずれも display_top 件に絞る。
         """
         sess = self._session
@@ -207,6 +208,12 @@ class AthMonitor:
                 yosen_pre = _ret_pct(s.get("pre") or 0.0, s.get("pre_open") or 0.0)
                 yosen_reg = _ret_pct(s.get("last") or 0.0, s.get("reg_open") or 0.0)
                 yosen_total = _ret_pct(cur, s.get("day_open") or 0.0)
+                # 当日売買代金 = セッション別（プレ+レギュラー+アフター）の合計
+                turnover_today = (
+                    (s.get("turnover_pre") or 0.0)
+                    + (s.get("turnover_reg") or 0.0)
+                    + (s.get("turnover_after") or 0.0)
+                )
                 rows.append(
                     {
                         "code": code,
@@ -227,6 +234,7 @@ class AthMonitor:
                         "turnover_pre": s.get("turnover_pre"),
                         "turnover_reg": s.get("turnover_reg"),
                         "turnover_after": s.get("turnover_after"),
+                        "turnover_today": turnover_today,
                         "market_cap": s.get("market_cap"),
                         "market_cap_rank": s.get("market_cap_rank"),
                         "is_new_ath": is_new_ath,
@@ -239,6 +247,10 @@ class AthMonitor:
             # 前日売買代金の順位（昇順）。順位が無いものは末尾。
             rows = [r for r in rows if r.get("turnover_rank")]
             rows.sort(key=lambda x: x["turnover_rank"])
+        elif sort == "turnover_today":
+            # 当日売買代金の降順。同額（=0など）は前日売買代金順位で安定ソート。
+            rows.sort(key=lambda x: (-(x.get("turnover_today") or 0.0),
+                                     x.get("turnover_rank") or 10**9))
         else:
             rows.sort(key=lambda x: x["pct"], reverse=True)
         # 上位 display_top 件に絞る（監視は全銘柄のまま、表示のみ限定）

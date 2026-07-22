@@ -51,12 +51,27 @@ def turnover_page():
     )
 
 
+@app.route("/turnover-today")
+def turnover_today_page():
+    """当日売買代金 上位のリアルタイムページ（同レイアウト、自動更新あり）。"""
+    return render_template(
+        "ath.html",
+        market=monitor.market_name if monitor else "US",
+        top=monitor.top if monitor else 0,
+        show=(monitor.display_top or 0) if monitor else 0,
+        view="turnover_today",
+    )
+
+
 @app.route("/api/ranking")
 def api_ranking():
-    """ランキングを JSON で返す。?sort=turnover で前日売買代金順。"""
+    """ランキングを JSON で返す。?sort=turnover で前日売買代金順、
+    ?sort=turnover_today で当日売買代金順。"""
     if monitor is None:
         return jsonify({"mode": "unknown", "rows": []})
-    sort = "turnover" if request.args.get("sort") == "turnover" else "pct"
+    sort = request.args.get("sort")
+    if sort not in ("turnover", "turnover_today"):
+        sort = "pct"
     return jsonify(
         {
             "mode": monitor.mode,
