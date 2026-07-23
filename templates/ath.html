@@ -426,12 +426,22 @@
     const chartFrame = document.getElementById('chart-frame');
     const chartSym = document.getElementById('chart-sym');
 
+    // ローソク足の色: 陽線(終値>始値)=白・陰線(終値<始値)=黒
+    const CANDLE_OVERRIDES = {
+      'mainSeriesProperties.candleStyle.upColor': '#ffffff',
+      'mainSeriesProperties.candleStyle.downColor': '#000000',
+      'mainSeriesProperties.candleStyle.borderUpColor': '#000000',
+      'mainSeriesProperties.candleStyle.borderDownColor': '#000000',
+      'mainSeriesProperties.candleStyle.wickUpColor': '#000000',
+      'mainSeriesProperties.candleStyle.wickDownColor': '#000000',
+    };
     function openChart(sym) {
       const enc = encodeURIComponent(sym);
       chartSym.textContent = sym;
       chartFrame.src = `https://s.tradingview.com/widgetembed/?symbol=${enc}`
         + `&interval=D&theme=light&style=1&locale=ja&timezone=Asia/Tokyo`
-        + `&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1`;
+        + `&withdateranges=1&hide_side_toolbar=0&allow_symbol_change=1`
+        + `&overrides=${encodeURIComponent(JSON.stringify(CANDLE_OVERRIDES))}`;
       chartModal.hidden = false;
     }
     function closeChart() {
