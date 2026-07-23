@@ -37,6 +37,9 @@ SNAPSHOT_ELEMENTS = [
 # リアルタイム購読する要素（変動するものだけ）
 SUBSCRIBE_ELEMENTS = ["現在値", "高値", "売買代金", "前日終値", "陽線率", "後場陽線率"]
 
+# 「当日ATH更新」とみなすセッション（寄り前・大引け後は当日高値が確定値なので対象外）
+INTRADAY_SESSIONS = ("MORNING", "LUNCH", "AFTERNOON")
+
 
 def jp_session(now: Optional[datetime] = None) -> str:
     """JSTの時刻から市場セッションを返す。MORNING/LUNCH/AFTERNOON/CLOSED。
@@ -131,6 +134,8 @@ class JpAthMonitor:
             self._stop.wait(3)
 
     def _setup(self) -> bool:
+        # 先にセッションを確定させる（スナップショット時点でATH更新判定に使うため）
+        self._refresh_session(initial=True)
         cli = RssPilotClient(self.host, self.port, tag="athjp")
         if not cli.start():
             print("[jp] RSSPilot に接続できませんでした。")
@@ -159,18 +164,21 @@ class JpAthMonitor:
         for code in codes:
             v = snap.get(code, {})
             m = master.get(code, {})
+            ath = pick_ath(v.get("上場来高値"), v.get("上場来高値2"))
+            high = _f(v.get("高値"))
             state[code] = {
                 "name": m.get("name") or v.get("銘柄名") or name_map.get(code) or code,
                 "industry": m.get("gyoshu33") or "",
                 "market": m.get("market") or "",
                 "turnover_rank": rank_map.get(code),
-                "ath": pick_ath(v.get("上場来高値"), v.get("上場来高値2")),
+                "ath": ath,
                 "ath_rss": _f(v.get("上場来高値")),
                 "ath_web": _f(v.get("上場来高値2")),
-                "ath_updated": False,
+                # 場中に起動した場合、起動前のATH更新もここで拾う
+                "ath_updated": self._is_ath_break(ath, high),
                 "last": _f(v.get("現在値")),
                 "prev_close": _f(v.get("前日終値")),
-                "high": _f(v.get("高値")),
+                "high": high,
                 "turnover": _f(v.get("売買代金")) * TURNOVER_UNIT,
                 "yosen": v.get("陽線率"),
                 "yosen_pm": v.get("後場陽線率"),
@@ -183,8 +191,9 @@ class JpAthMonitor:
         if not cli.subscribe(codes, SUBSCRIBE_ELEMENTS, self.interval_ms):
             print("[jp] 購読に失敗しました。")
             return False
-        self._refresh_session(initial=True)
-        print(f"[jp] リアルタイム監視を開始: 前日売買代金上位{len(codes)}銘柄")
+        n_hit = sum(1 for s in state.values() if s["ath_updated"])
+        print(f"[jp] リアルタイム監視を開始: 前日売買代金上位{len(codes)}銘柄"
+              f"（起動時点のATH更新: {n_hit}銘柄）")
         return True
 
     def _resubscribe(self) -> None:
@@ -204,6 +213,9 @@ class JpAthMonitor:
                 s["last"] = _f(v.get("現在値")) or s.get("last")
                 s["prev_close"] = _f(v.get("前日終値")) or s.get("prev_close")
                 s["high"] = max(s.get("high") or 0.0, _f(v.get("高値")))
+                # 切断中に更新した分もここで拾う
+                if self._is_ath_break(s.get("ath") or 0.0, s["high"]):
+                    s["ath_updated"] = True
                 s["turnover"] = _f(v.get("売買代金")) * TURNOVER_UNIT or s.get("turnover")
                 if v.get("陽線率") is not None:
                     s["yosen"] = v.get("陽線率")
@@ -212,6 +224,10 @@ class JpAthMonitor:
         print(f"[jp] 再購読しました（{len(codes)}銘柄）")
 
     # ------------------------------------------------------------------ #
+    def _is_ath_break(self, ath: float, high: float) -> bool:
+        """当日高値が基準ATHを超えているか（ザラ場中のみ有効）。"""
+        return bool(ath) and high > ath and self._session in INTRADAY_SESSIONS
+
     def _on_data(self, code: str, element: str, value) -> None:
         """RSSPilot からの push を state に反映する。"""
         with self._lock:
@@ -233,7 +249,7 @@ class JpAthMonitor:
                 if high > (s.get("high") or 0.0):
                     s["high"] = high
                     # ザラ場中に基準ATHを超えたら「ATH更新」（大引けでリセット）
-                    if self._session in ("MORNING", "AFTERNOON") and s.get("ath") and high > s["ath"]:
+                    if self._is_ath_break(s.get("ath") or 0.0, high):
                         s["ath_updated"] = True
 
     def _refresh_session(self, initial: bool = False) -> None:
